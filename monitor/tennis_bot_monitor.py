@@ -26,7 +26,7 @@ STATE_FILE = os.path.join(MONITOR_DIR, "state.json")
 LOG_FILE = "/tmp/tennis_bot_monitor.log"
 
 DUCKDNS_DOMAIN = "tennisbotdata"
-DUCKDNS_TOKEN = "tennisbotdata.duckdns.org"
+DUCKDNS_TOKEN = "0d53b513-7a68-46fa-a547-81be029ede84"
 DUCKDNS_IP = "161.118.182.103"
 
 
