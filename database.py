@@ -69,12 +69,6 @@ def init_db() -> None:
             ")"
         ))
         conn.execute(text(
-            "SELECT add_reorder_policy("
-            "'live_scores', 'tracked_match_id',"
-            " if_not_exists => TRUE"
-            ")"
-        ))
-        conn.execute(text(
             "ALTER TABLE live_scores SET ("
             "  timescaledb.compress,"
             "  timescaledb.compress_segmentby = 'tracked_match_id'"
