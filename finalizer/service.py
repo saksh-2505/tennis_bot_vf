@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timezone
 
 from finalizer.stats import calculate_stats
+from finalizer.telegram import send_message as send_tg
 from finalizer.validation import validate
 from models.completed_match import CompletedMatch
 from models.live_score import LiveScore
@@ -134,6 +135,21 @@ def finalize_match(session, tracked_match_id: int) -> CompletedMatch:
         tm.match_duration_min or "?",
         "PASS" if validation.validation_passed else "FAIL",
     )
+
+    try:
+        pass_str = "\u2705 PASS" if validation.validation_passed else "\u274c FAIL"
+        tg_msg = (
+            f"\U0001f3bd Match Finalized: {tracked_match_id}\n"
+            f"{tm.player1_name} vs {tm.player2_name}\n"
+            f"Duration: {tm.match_duration_min or '?'} min\n"
+            f"Score ticks: {stats.score_tick_count:,}\n"
+            f"Odds ticks: {stats.odds_tick_count:,}\n"
+            f"Validation: {pass_str}"
+        )
+        send_tg(tg_msg)
+    except Exception:
+        logger.debug("Telegram notification failed for match %d", tracked_match_id)
+
     return cm
 
 
