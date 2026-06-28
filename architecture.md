@@ -470,6 +470,23 @@ tracked_match (status=FINISHED)
 | `attempt_recovery(session, incident)` | Safe recovery: DB retry, collector retry on next cycle |
 | `_retry_db_connection(incident)` | `SELECT 1` via SQLAlchemy engine |
 
+### `incidents/telegram_bot.py`
+| Function | Description |
+|----------|-------------|
+| `check_commands(session)` | Poll Telegram `getUpdates`, dispatch commands, reply |
+| `_handle_command(session, text)` | Route `/status`, `/matches`, `/match <id>`, `/scores`, `/odds`, `/incidents` |
+| `_status(session)` | DB health, live match count, tick counts, open incidents |
+| `_matches(session)` | Match counts by status, list of LIVE matches |
+| `_match_detail(session, id)` | Full match row + score/odds stats + finalized status |
+| `_scores(session)` | For each LIVE match: set/game scores, point, tiebreak |
+| `_odds(session)` | For each LIVE match: back odds for both players |
+| `_incidents(session)` | Open incidents with severity, category, occurrence count |
+| `_send_reply(chat_id, text)` | POST HTML response back to Telegram |
+| `_fetch_updates(offset)` | GET pending updates since last offset |
+| `_read_offset()` / `_write_offset()` | Persist update offset to `/tmp/telegram_offset` |
+
+Called once per monitor tick (60s) from `_run_tick()`.
+
 ### `collector/flashscore/client.py`
 | Function | Description |
 |----------|-------------|
