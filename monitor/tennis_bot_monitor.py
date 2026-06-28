@@ -126,7 +126,7 @@ def extract_errors(log_text: str) -> list[str]:
     errors = []
     for line in lines:
         lower = line.lower()
-        if any(kw in lower for kw in ["error", "exception", "traceback", "failed", "unreachable"]):
+        if any(kw in lower for kw in ["error", "exception", "traceback", "failed with", "unreachable"]):
             errors.append(line.strip())
     return errors
 
