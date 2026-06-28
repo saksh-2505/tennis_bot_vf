@@ -31,10 +31,10 @@ def check_commands(session: Session) -> None:
         return
 
     offset = _read_offset()
-    logger.debug("Telegram bot poll start (offset=%d)", offset)
+        logger.info("Telegram bot poll start (offset=%d)", offset)
     try:
         updates = _fetch_updates(offset)
-        logger.debug("Telegram poll returned %d updates", len(updates))
+        logger.info("Telegram poll returned %d updates", len(updates))
         for update in updates:
             msg = update.get("message", {})
             chat_id = msg.get("chat", {}).get("id")
@@ -52,7 +52,7 @@ def check_commands(session: Session) -> None:
             if new_offset > offset:
                 offset = new_offset
         _write_offset(offset)
-        logger.debug("Telegram bot poll done (new offset=%d)", offset)
+        logger.info("Telegram bot poll done (new offset=%d)", offset)
     except Exception:
         logger.exception("Telegram bot check failed")
 
