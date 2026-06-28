@@ -132,6 +132,17 @@ def _run_tick(session: Session) -> None:
 
     _auto_resolve_healed(session, incidents)
 
+    _check_telegram_bot(session)
+
+
+def _check_telegram_bot(session: Session) -> None:
+    from incidents.telegram_bot import check_commands
+
+    try:
+        check_commands(session)
+    except Exception:
+        logger.exception("Telegram bot command check failed")
+
 
 def _check_cpu() -> list[dict]:
     try:
