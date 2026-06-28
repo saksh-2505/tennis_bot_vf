@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.db
+graphify-out/
+.venv
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+oraclessh.key
+*~
+
