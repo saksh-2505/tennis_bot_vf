@@ -69,18 +69,6 @@ def init_db() -> None:
             ")"
         ))
         conn.execute(text(
-            "SELECT add_compression_policy("
-            "'live_scores', INTERVAL '7 days',"
-            " if_not_exists => TRUE"
-            ")"
-        ))
-        conn.execute(text(
-            "SELECT add_compression_policy("
-            "'live_odds', INTERVAL '7 days',"
-            " if_not_exists => TRUE"
-            ")"
-        ))
-        conn.execute(text(
             "SELECT add_reorder_policy("
             "'live_scores', 'tracked_match_id',"
             " if_not_exists => TRUE"
@@ -102,6 +90,18 @@ def init_db() -> None:
             "ALTER TABLE live_odds SET ("
             "  timescaledb.compress,"
             "  timescaledb.compress_segmentby = 'tracked_match_id'"
+            ")"
+        ))
+        conn.execute(text(
+            "SELECT add_compression_policy("
+            "'live_scores', INTERVAL '7 days',"
+            " if_not_exists => TRUE"
+            ")"
+        ))
+        conn.execute(text(
+            "SELECT add_compression_policy("
+            "'live_odds', INTERVAL '7 days',"
+            " if_not_exists => TRUE"
             ")"
         ))
         conn.commit()
