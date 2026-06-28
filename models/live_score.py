@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Integer, PrimaryKeyConstraint, String
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -10,7 +10,6 @@ from database import Base
 class LiveScore(Base):
     __tablename__ = "live_scores"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     tracked_match_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     flashscore_match_id: Mapped[str] = mapped_column(String(32), nullable=False)
     timestamp: Mapped[datetime] = mapped_column(
@@ -29,8 +28,5 @@ class LiveScore(Base):
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
     __table_args__ = (
-        UniqueConstraint(
-            "tracked_match_id", "timestamp", "content_hash",
-            name="uq_live_scores_tick",
-        ),
+        PrimaryKeyConstraint("tracked_match_id", "timestamp", "content_hash"),
     )
