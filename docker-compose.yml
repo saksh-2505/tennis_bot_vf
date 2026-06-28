@@ -3,12 +3,63 @@ services:
     image: timescale/timescaledb:latest-pg16
     environment:
       POSTGRES_USER: tennis
-      POSTGRES_PASSWORD: tennis
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: tennis_bot
     ports:
       - "5432:5432"
     volumes:
-      - timescale_data:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tennis"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql+psycopg2://tennis:${DB_PASSWORD}@timescaledb:5432/tennis_bot"
+      LOG_LEVEL: "INFO"
+      LOG_FORMAT: "text"
+      DISCOVERY_ENABLED: "true"
+      DISCOVERY_INTERVAL_SECONDS: "43200"
+      STATUS_CHECK_INTERVAL_SECONDS: "300"
+      LIVE_SCORE_INTERVAL_SECONDS: "10"
+      LIVE_ODDS_INTERVAL_SECONDS: "2"
+      LIVE_PREFETCH_MINUTES: "5"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+      TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID}"
+    restart: always
+
+  monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.monitor
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql+psycopg2://tennis:${DB_PASSWORD}@timescaledb:5432/tennis_bot"
+      LOG_LEVEL: "INFO"
+      LOG_FORMAT: "text"
+      INCIDENT_MONITOR_INTERVAL: "60"
+      INCIDENT_SCORE_STALE: "120"
+      INCIDENT_ODDS_STALE: "60"
+      INCIDENT_COLLECTOR_STALE: "7200"
+      INCIDENT_UNFINALIZED_STALE: "1800"
+      INCIDENT_CPU_THRESHOLD: "90"
+      INCIDENT_MEMORY_THRESHOLD: "90"
+      INCIDENT_DISK_THRESHOLD: "90"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+      TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID}"
+    volumes:
+      - incident_packages:/app/incident_packages
+    restart: always
 
 volumes:
-  timescale_data:
+  pgdata:
+  incident_packages:

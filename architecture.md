@@ -6,7 +6,7 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** Phase 1 (Match Discovery) complete. Phase 2.0 (Match Registry) complete. Phase 2.1 (Discovery Orchestrator) complete. Phase 2 (Live Data Collection) built. Phase 2.2 (Match Finalizer) built — `completed_matches` table, stats/validation pipeline. Phases 3–10 are stubbed.
+**Current Status:** Phase 1 (Match Discovery) complete. Phase 2.0 (Match Registry) complete. Phase 2.1 (Discovery Orchestrator) complete. Phase 2 (Live Data Collection) built. Phase 2.2 (Match Finalizer) built — `completed_matches` table, stats/validation pipeline. Monitor module built and deployed — health checks, error digests, daily reports, DuckDNS updates via Telegram. Platform deployed to Oracle Cloud Always Free (ARM, 4 OCPU, 15 GB RAM, 49 GB disk). Phases 3–10 are stubbed.
 
 ---
 
@@ -83,6 +83,17 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 │  │  (cross-reference by player names, resolve player IDs)  │  │
 │  └─────────────────────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────┘
+
+                         ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  CRON (every 5 min)                                              │
+│  ├── monitor/tennis_bot_monitor.py                               │
+│  │     ├── Container health check → Telegram alert               │
+│  │     ├── Error digest (new WARNING/ERROR in logs) → Telegram   │
+│  │     ├── Daily report (match stats, tick counts) → Telegram    │
+│  │     └── DuckDNS update (tennisbotdata.duckdns.org → VM IP)   │
+│  └── curl DuckDNS fallback update                                │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -303,7 +314,7 @@ tracked_match (status=FINISHED)
 ### `config.py`
 | Element | Type | Description |
 |---------|------|-------------|
-| `Settings` | `BaseSettings` | Pydantic model from `.env` |
+| `Settings` | `BaseSettings` | Pydantic model from `.env`, `extra="ignore"` (allows unknown env vars) |
 | `settings.DATABASE_URL` | `str` | Default: `postgresql+psycopg2://...` |
 | `settings.LOG_LEVEL` | `str` | Default: `"INFO"` |
 | `settings.LOG_FORMAT` | `str` | Default: `"text"` |
@@ -317,7 +328,7 @@ tracked_match (status=FINISHED)
 | `Base` | `DeclarativeBase` for ORM models |
 | `get_db()` | Generator yielding Session, closes on exit |
 | `check_connection()` | `SELECT 1` → bool |
-| `init_db()` | Create all tables; convert `live_scores`/`live_odds` to hypertables (1d chunks); enable compression (7d); add reorder policy; idempotent via `IF NOT EXISTS` |
+| `init_db()` | Create all tables via `metadata.create_all`; convert `live_scores`/`live_odds` to hypertables (1d chunks via `create_hypertable`); enable per-table compression with `segmentby=tracked_match_id` (via `ALTER TABLE ... SET`); add compression policy (7d interval) and reorder policy with graceful try/except fallback; idempotent via `if_not_exists` guards |
 
 ### `logger.py`
 | Function | Description |
@@ -374,6 +385,18 @@ tracked_match (status=FINISHED)
 | Function | Description |
 |----------|-------------|
 | `build_match_registry()` | Join flashscorefoundmatches ↔ bettingsitefoundmatches by player names, resolve player IDs, upsert tracked_matches, return list[TrackedMatch] |
+
+### `monitor/tennis_bot_monitor.py`
+| Function | Description |
+|----------|-------------|
+| `run()` | Main entry: DuckDNS update → container health check → down/recovery alerts → error digest → daily report |
+| `check_containers()` | `docker compose ps --format json` → `(app_ok, db_ok, err_msg)` |
+| `get_recent_logs(since_seconds)` | Fetch recent app container logs |
+| `extract_errors(log_text)` | Filter lines containing ERROR/exception/traceback |
+| `get_db_stats()` | Query TimescaleDB for match counts, tick counts via `docker compose exec` |
+| `update_duckdns()` | GET `duckdns.org/update?domains=...&token=...&ip=...` |
+| `send_telegram(text)` | POST message to Telegram bot API |
+| `load_state()` / `save_state(state)` | Persist health state to `state.json` for transition detection |
 
 ### `collector/flashscore/client.py`
 | Function | Description |
@@ -520,31 +543,27 @@ tracked_match (status=FINISHED)
 ### `live_scores` (hypertable)
 | Column | Type | Constraints |
 |--------|------|-------------|
-| id | BigInt | PK |
-| tracked_match_id | Integer | INDEXED, NOT NULL |
+| tracked_match_id | Integer | PK (composite), NOT NULL |
+| timestamp | TIMESTAMPTZ | PK (composite), partition key |
+| content_hash | String(64) | PK (composite), NOT NULL |
 | flashscore_match_id | String(32) | NOT NULL |
-| timestamp | TIMESTAMPTZ | NOT NULL, partition key |
-| set_score_a/b | Smallint | nullable |
-| game_score_a/b | Smallint | nullable |
+| set_score_a/b | Integer | nullable |
+| game_score_a/b | Integer | nullable |
 | point_score | String(8) | nullable |
 | server | String(255) | nullable |
 | is_tiebreak | Boolean | default=False |
 | match_finished | Boolean | default=False |
-| content_hash | String(64) | NOT NULL |
-| | `UNIQUE(tracked_match_id, timestamp, content_hash)` |
 
 ### `live_odds` (hypertable)
 | Column | Type | Constraints |
 |--------|------|-------------|
-| id | BigInt | PK |
-| tracked_match_id | Integer | INDEXED, NOT NULL |
+| tracked_match_id | Integer | PK (composite), NOT NULL |
+| timestamp | TIMESTAMPTZ | PK (composite), partition key |
+| content_hash | String(64) | PK (composite), NOT NULL |
 | betting_market_id | String(64) | NOT NULL |
-| timestamp | TIMESTAMPTZ | NOT NULL, partition key |
 | back_odds_a/b | Float | nullable |
 | lay_odds_a/b | Float | nullable |
 | volume_a/b | Float | nullable |
-| content_hash | String(64) | NOT NULL |
-| | `UNIQUE(tracked_match_id, timestamp, content_hash)` |
 
 ### `completed_matches`
 | Column | Type | Constraints |
@@ -593,13 +612,14 @@ tracked_match (status=FINISHED)
 | `orchestrator/` | Phase 2.1 ✅ | Platform loop — status monitor + scheduled discovery |
 | `live_collector/` | Phase 2 ✅ | Live score & odds collection — TimescaleDB hypertables |
 | `finalizer/` | Phase 2.2 ✅ | Match Finalizer — `completed_matches` table, stats, validation |
+| `monitor/` | Phase 2.3 ✅ | Health checks, Telegram alerts, error digests, daily reports, DuckDNS |
 | `storage/` | Phase 3 | Append-only tick storage for live data |
 | `replay/` | Phase 3 | Replay any recorded match exactly as it happened |
 | `research/` | Phase 5 | Research notebooks, probability calculations |
 | `backtest/` | Phase 6 | Backtesting engine for strategies |
 | `models/` | Phase 7 | ML models for probability estimation |
 | `execution/` | Phase 9 | Live trade execution |
-| `dashboard/` | Phase 10 | Monitoring dashboard |
+| `dashboard/` | Phase 10 | Web monitoring dashboard (empty stub) |
 
 ---
 
@@ -646,7 +666,125 @@ tracked_match (status=FINISHED)
 
 ---
 
-## 9. Development Workflow
+## 9. Deployment
+
+**Platform:** Oracle Cloud Always Free (ARM Ampere A1, 4 OCPU, 15 GB RAM, 49 GB boot disk)
+
+### Stack
+```
+Oracle VM (Ubuntu 22.04, x86_64)
+│
+├── Docker Compose
+│   ├── timescaledb (timescale/timescaledb:latest-pg16)
+│   │   └── pgdata volume  (persistent)
+│   │   └── healthcheck: pg_isready
+│   │
+│   └── app (python:3.12-slim, built on VM)
+│       ├── main.py — orchestrator + live collector
+│       └── env vars via docker-compose.yml environment:
+│           DATABASE_URL, LOG_LEVEL, LOG_FORMAT,
+│           DISCOVERY_*, LIVE_*, TELEGRAM_*
+│
+├── Cron (every 5 min)
+│   ├── monitor/tennis_bot_monitor.py
+│   │   ├── DuckDNS update
+│   │   ├── container health → Telegram alert
+│   │   ├── error digest → Telegram
+│   │   └── daily report → Telegram
+│   └── curl DuckDNS fallback
+│
+├── Logrotate (30-day retention, 100 MB max per file)
+│   └── /home/ubuntu/tennis_bot/logs/*.log
+│
+├── Docker restart policy (restart: always on both services)
+│   └── Systemd tennis-bot.service defined but inactive
+│
+└── DuckDNS: tennisbotdata.duckdns.org → 161.118.182.103
+```
+
+### Infrastructure
+| Service | Purpose |
+|---------|---------|
+| DuckDNS | Free dynamic DNS — `tennisbotdata.duckdns.org` |
+| Telegram bot | Downtime alerts + error digests + daily reports |
+| Docker `restart: always` | Container restart on crash |
+| Logrotate | Prevents disk exhaustion |
+| GitHub | Source of truth — `saksh-2505/tennis_bot_vf` |
+
+### Key environment variables
+| Variable | Set by | Purpose |
+|----------|--------|---------|
+| `DATABASE_URL` | docker-compose.yml | Points to `timescaledb:5432` |
+| `DB_PASSWORD` | `.env` file | Superuser password for PostgreSQL |
+| `TELEGRAM_BOT_TOKEN` | `.env` file (docker-compose) / hardcoded (monitor.py) | Bot token for health alerts |
+| `TELEGRAM_CHAT_ID` | `.env` file (docker-compose) / hardcoded (monitor.py) | Destination chat for alerts |
+
+> **Note:** `monitor/tennis_bot_monitor.py` and `health_check.sh` have TELEGRAM_BOT_TOKEN and CHAT_ID **hardcoded**, not pulled from `.env`. The app container reads them from `.env` via docker-compose.
+
+### `docker-compose.yml` structure
+```
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: tennis
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: tennis_bot
+    volumes: pgdata:/var/lib/postgresql/data
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tennis"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql+psycopg2://tennis:${DB_PASSWORD}@timescaledb:5432/tennis_bot"
+      LOG_LEVEL: "INFO"
+      LOG_FORMAT: "text"
+      DISCOVERY_ENABLED: "true"
+      DISCOVERY_INTERVAL_SECONDS: "43200"
+      STATUS_CHECK_INTERVAL_SECONDS: "300"
+      LIVE_SCORE_INTERVAL_SECONDS: "10"
+      LIVE_ODDS_INTERVAL_SECONDS: "2"
+      LIVE_PREFETCH_MINUTES: "5"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+      TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID}"
+    restart: always
+```
+
+### `Dockerfile` structure
+```
+FROM python:3.12-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc libpq-dev && rm -rf /var/lib/apt/lists/*
+COPY pyproject.toml README.md ./
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir \
+        pydantic-settings sqlalchemy psycopg2-binary httpx beautifulsoup4 pytest
+COPY . .
+CMD ["python", "main.py"]
+```
+
+### Production-specific model constraints
+- `live_scores` and `live_odds` use **composite primary keys** `(tracked_match_id, timestamp, content_hash)` instead of auto-increment `id` — required by TimescaleDB (partition column must be part of every PK/unique index)
+- `init_db()` enables compression via `ALTER TABLE ... SET (timescaledb.compress)` before adding `add_compression_policy` — incorrect order causes `columnstore not enabled` error
+- `Settings` model uses `extra="ignore"` to silently accept non-application env vars (`DB_PASSWORD`, `TELEGRAM_*`)
+
+### Update workflow
+1. Push changes to `saksh-2505/tennis_bot_vf`
+2. SSH: `cd ~/tennis_bot && git pull`
+3. `docker compose build app && docker compose up -d`
+
+---
+
+## 10. Development Workflow
 
 Per the roadmap, each phase must satisfy its Definition of Done before moving forward:
 
