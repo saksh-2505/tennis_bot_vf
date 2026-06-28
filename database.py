@@ -75,12 +75,6 @@ def init_db() -> None:
             ")"
         ))
         conn.execute(text(
-            "SELECT add_reorder_policy("
-            "'live_odds', 'tracked_match_id',"
-            " if_not_exists => TRUE"
-            ")"
-        ))
-        conn.execute(text(
             "ALTER TABLE live_scores SET ("
             "  timescaledb.compress,"
             "  timescaledb.compress_segmentby = 'tracked_match_id'"
@@ -92,18 +86,22 @@ def init_db() -> None:
             "  timescaledb.compress_segmentby = 'tracked_match_id'"
             ")"
         ))
-        conn.execute(text(
-            "SELECT add_compression_policy("
-            "'live_scores', INTERVAL '7 days',"
-            " if_not_exists => TRUE"
-            ")"
-        ))
-        conn.execute(text(
-            "SELECT add_compression_policy("
-            "'live_odds', INTERVAL '7 days',"
-            " if_not_exists => TRUE"
-            ")"
-        ))
+        conn.commit()
+
+        for tbl in ("live_scores", "live_odds"):
+            try:
+                conn.execute(text(
+                    f"SELECT add_compression_policy("
+                    f"'{tbl}', INTERVAL '7 days',"
+                    f" if_not_exists => TRUE)"
+                ))
+                conn.execute(text(
+                    f"SELECT add_reorder_policy("
+                    f"'{tbl}', 'tracked_match_id',"
+                    f" if_not_exists => TRUE)"
+                ))
+            except Exception:
+                logger.warning("Could not add policy for %s — skipping", tbl)
         conn.commit()
 
     logger.info("TimescaleDB initialized — hypertables configured, compression enabled")
