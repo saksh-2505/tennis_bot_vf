@@ -6,7 +6,7 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** Phase 1 (Match Discovery) complete. Phase 2.0 (Match Registry) complete. Phase 2.1 (Discovery Orchestrator) complete. Phase 2 (Live Data Collection) built. Phase 2.2 (Match Finalizer) built — `completed_matches` table, stats/validation pipeline. Monitor module built and deployed — health checks, error digests, daily reports, DuckDNS updates via Telegram. Platform deployed to Oracle Cloud Always Free (ARM, 4 OCPU, 15 GB RAM, 49 GB disk). Phases 3–10 are stubbed.
+**Current Status:** Phase 1 (Match Discovery) complete. Phase 2.0 (Match Registry) complete. Phase 2.1 (Discovery Orchestrator) complete. Phase 2 (Live Data Collection) built. Phase 2.2 (Match Finalizer) built — `completed_matches` table, stats/validation pipeline. Phase 2.3 (Monitor) built — health checks, Telegram notifications, DuckDNS. Phase 3.1 (Incident Management) built and deployed — continuous monitoring, incident dedup, diagnostic packages, safe recovery. Platform deployed to Oracle Cloud Always Free (ARM, 4 OCPU, 15 GB RAM, 49 GB disk). Phases 4–10 are stubbed.
 
 ---
 
@@ -35,12 +35,38 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
            │                      │                                   │
            └──────────┬───────────┘                                   │
                       ▼                                               │
+
+┌─────────────────────────────────────────────────────────────────────┐
+│  CRON (every 5 min) — tennis_bot_monitor.py                         │
+│  ├── Container health — Telegram alerts (down/recovery)             │
+│  ├── Error digest — new WARNING/ERROR in app logs → Telegram        │
+│  ├── Daily report — match/tick counts → Telegram                    │
+│  └── DuckDNS update                                                 │
+└────────────────────────────────────────────────────────────────────┘
+
+                         ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│  INCIDENT MANAGER — run_monitor.py (Docker, restart: always)          │
+│  ∞ loop (60s interval):                                                │
+│  ├── CPU/RAM/Disk thresholds                                          │
+│  ├── DB connectivity                                                  │
+│  ├── 6 collector health checks (staleness via DB timestamps)          │
+│  ├── Live match health (score/odds freshness)                         │
+│  ├── Unfinalized finished match detection                             │
+│  ├── create_incident() — dedup by SHA-256 hash                        │
+│  ├── generate_incident_package() — JSON, logs, metrics, config, source│
+│  ├── send_notification() — Telegram CRITICAL alerts                   │
+│  ├── attempt_recovery() — safe DB retry                               │
+│  └── auto-resolve when condition clears                               │
+└───────────────────────────────────────────────────────────────────────┘
+
+                         ▼
 ┌────────────────────────────────────────────────────────────────────┐
 │                        TIMESCALEDB (PostgreSQL 16)                  │
 │                                                                     │
 │  ┌───────────────────────────────────────────────────────────────┐ │
 │  │  Regular tables: flashscorefoundmatches, bettingsitefoundmatches│
-│  │  players, tracked_matches                                      │ │
+│  │  players, tracked_matches, completed_matches, incidents       │ │
 │  └───────────────────────────────────────────────────────────────┘ │
 │  ┌───────────────────────────────────────────────────────────────┐ │
 │  │  Hypertables: live_scores, live_odds                          │ │
@@ -70,7 +96,7 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 │  ┌─────────────────────────────────────────────────────────┐  │
 │  │  Regular tables:                                        │  │
 │  │  flashscorefoundmatches, bettingsitefoundmatches,        │  │
-│  │  players, tracked_matches                                │  │
+│  │  players, tracked_matches, incidents                     │  │
 │  └──────────┬──────────────────────────────────────────────┘  │
 │             │                                                 │
 │  ┌──────────▼──────────────────────────────────────────────┐  │
@@ -83,17 +109,6 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 │  │  (cross-reference by player names, resolve player IDs)  │  │
 │  └─────────────────────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────┘
-
-                         ▼
-┌──────────────────────────────────────────────────────────────────┐
-│  CRON (every 5 min)                                              │
-│  ├── monitor/tennis_bot_monitor.py                               │
-│  │     ├── Container health check → Telegram alert               │
-│  │     ├── Error digest (new WARNING/ERROR in logs) → Telegram   │
-│  │     ├── Daily report (match stats, tick counts) → Telegram    │
-│  │     └── DuckDNS update (tennisbotdata.duckdns.org → VM IP)   │
-│  └── curl DuckDNS fallback update                                │
-└──────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -398,6 +413,63 @@ tracked_match (status=FINISHED)
 | `send_telegram(text)` | POST message to Telegram bot API |
 | `load_state()` / `save_state(state)` | Persist health state to `state.json` for transition detection |
 
+### `incidents/models.py`
+| Element | Type | Description |
+|---------|------|-------------|
+| `Incident` | `Base` ORM | 16-column table, self-creating (ad-hoc like `players`) |
+| `incident_hash` | String(64) | SHA-256 for dedup, indexed (not unique — allows recurrence) |
+
+### `incidents/service.py`
+| Function | Description |
+|----------|-------------|
+| `create_incident(session, ...)` | Hash → insert OR update if OPEN/ACKNOWLEDGED/RECOVERING |
+| `resolve_incident(session, id)` | Set status=RESOLVED, resolved_at=now |
+| `acknowledge_incident(session, id)` | Set status=ACKNOWLEDGED |
+| `get_open_incidents(session)` | Query OPEN + ACKNOWLEDGED + RECOVERING |
+| `list_by_module(session, module)` | Filter by module, newest first |
+| `_compute_hash(category, module, title)` | SHA-256 for deterministic dedup |
+
+### `incidents/monitor.py`
+| Function | Description |
+|----------|-------------|
+| `monitor_platform()` | Infinite loop: check everything → create incidents → notify → recover → auto-resolve |
+| `_run_tick(session)` | One monitoring cycle — all checks |
+| `_check_cpu()` / `_check_memory()` / `_check_disk()` | Infrastructure thresholds (configurable %) |
+| `_check_database(session)` | `SELECT 1` → CRITICAL if unreachable |
+| `_check_collectors(session)` | 4 collectors: MAX(timestamp) staleness check |
+| `_check_live_collector(session)` | Live collector: MAX(live_scores.timestamp) staleness |
+| `_check_finalizer(session)` | Finalizer: MAX(completed_matches.finalized_at) staleness |
+| `_check_live_matches(session)` | Per LIVE match: score/odds freshness |
+| `_check_unfinalized_finished(session)` | FINISHED matches without completed_matches row |
+| `_auto_resolve_healed(session, currents)` | Resolve incidents whose condition is no longer detected |
+| `_to_timestamp(val)` | Normalize datetime/string/float → Unix timestamp |
+
+### `incidents/package_generator.py`
+| Function | Description |
+|----------|-------------|
+| `generate_incident_package(session, incident)` | Create full diagnostic package directory |
+| `_write_incident_json(path, incident)` | Core incident record as JSON |
+| `_collect_logs(path, incident)` | Try `docker compose logs --tail 500` for app logs |
+| `_collect_metrics(path)` | CPU/RAM/Disk via os + shutil |
+| `_collect_environment(path)` | Python version, OS, pip freeze, DB version |
+| `_collect_system_state(path, session)` | Active matches, tick counts, open incidents |
+| `_collect_configuration(path)` | Sanitized `.env` (redact tokens/passwords/keys) |
+| `_collect_architecture(path)` | architecture.md path + git commit hash |
+| `_collect_source(path, incident)` | Copy affected module source files |
+| `_sanitize_value(key, value)` | Replace secrets with `<REDACTED>` |
+
+### `incidents/notifier.py`
+| Function | Description |
+|----------|-------------|
+| `send_notification(incident)` | POST CRITICAL alert to Telegram (no stack traces) |
+| `_format_incident_alert(incident)` | Severity icon + module + title + summary + ID |
+
+### `incidents/recovery.py`
+| Function | Description |
+|----------|-------------|
+| `attempt_recovery(session, incident)` | Safe recovery: DB retry, collector retry on next cycle |
+| `_retry_db_connection(incident)` | `SELECT 1` via SQLAlchemy engine |
+
 ### `collector/flashscore/client.py`
 | Function | Description |
 |----------|-------------|
@@ -599,7 +671,31 @@ tracked_match (status=FINISHED)
 | finalized_at | TIMESTAMPTZ | |
 | collector_version | String(32) | default=`"3.0.0"` |
 
+### `incidents`
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| incident_id | Integer | PK, autoincrement |
+| severity | String(16) | INFO, WARNING, ERROR, CRITICAL |
+| status | String(16) | OPEN, ACKNOWLEDGED, RECOVERING, RESOLVED, CLOSED |
+| category | String(32) | Collector Failure, Database, Network, Infrastructure, Data Validation, Match Collection, Unknown |
+| module | String(64) | Affected module |
+| tracked_match_id | Integer | nullable |
+| collector_name | String(64) | nullable |
+| title | String(256) | Short summary |
+| summary | Text | Full description |
+| incident_hash | String(64) | INDEXED, SHA-256 dedup key |
+| first_detected_at | TIMESTAMPTZ | |
+| last_detected_at | TIMESTAMPTZ | Auto-updates on dedup |
+| resolved_at | TIMESTAMPTZ | nullable |
+| occurrence_count | Integer | Incremented on dedup |
+| recovery_attempts | Integer | Incremented on recovery |
+| created_at | TIMESTAMPTZ | |
+| updated_at | TIMESTAMPTZ | Auto-updates |
+
 ---
+
+|---
 
 
 
@@ -613,6 +709,7 @@ tracked_match (status=FINISHED)
 | `live_collector/` | Phase 2 ✅ | Live score & odds collection — TimescaleDB hypertables |
 | `finalizer/` | Phase 2.2 ✅ | Match Finalizer — `completed_matches` table, stats, validation |
 | `monitor/` | Phase 2.3 ✅ | Health checks, Telegram alerts, error digests, daily reports, DuckDNS |
+| `incidents/` | Phase 3.1 ✅ | Incident Manager — continuous monitoring, dedup, diagnostic packages, safe recovery |
 | `storage/` | Phase 3 | Append-only tick storage for live data |
 | `replay/` | Phase 3 | Replay any recorded match exactly as it happened |
 | `research/` | Phase 5 | Research notebooks, probability calculations |
@@ -635,6 +732,19 @@ tracked_match (status=FINISHED)
 | `STATUS_CHECK_INTERVAL_SECONDS` | `300` | Status-monitor poll interval (5 min) |
 | `DISCOVERY_INTERVAL_SECONDS` | `43200` | Discovery cycle interval (12 h) |
 | `DISCOVERY_ENABLED` | `True` | Enable scheduled discovery |
+| `LIVE_SCORE_INTERVAL_SECONDS` | `10` | Score poll interval |
+| `LIVE_ODDS_INTERVAL_SECONDS` | `2` | Odds poll interval |
+| `LIVE_PREFETCH_MINUTES` | `5` | Pre-fetch URL before start |
+| `TELEGRAM_BOT_TOKEN` | (secret) | Bot token for health alerts |
+| `TELEGRAM_CHAT_ID` | (secret) | Destination chat for alerts |
+| `INCIDENT_MONITOR_INTERVAL` | `60` | Incident check cycle (seconds) |
+| `INCIDENT_SCORE_STALE` | `120` | Score staleness threshold (seconds) |
+| `INCIDENT_ODDS_STALE` | `60` | Odds staleness threshold (seconds) |
+| `INCIDENT_COLLECTOR_STALE` | `7200` | Collector staleness threshold (seconds) |
+| `INCIDENT_UNFINALIZED_STALE` | `1800` | Unfinalized match threshold (seconds) |
+| `INCIDENT_CPU_THRESHOLD` | `90` | CPU alert threshold (%) |
+| `INCIDENT_MEMORY_THRESHOLD` | `90` | Memory alert threshold (%) |
+| `INCIDENT_DISK_THRESHOLD` | `90` | Disk alert threshold (%) |
 | `LIVE_SCORE_INTERVAL_SECONDS` | `10` | Score poll interval |
 | `LIVE_ODDS_INTERVAL_SECONDS` | `2` | Odds poll interval |
 | `LIVE_PREFETCH_MINUTES` | `5` | Pre-fetch URL before start |
@@ -679,9 +789,14 @@ Oracle VM (Ubuntu 22.04, x86_64)
 │   │   └── pgdata volume  (persistent)
 │   │   └── healthcheck: pg_isready
 │   │
-│   └── app (python:3.12-slim, built on VM)
-│       ├── main.py — orchestrator + live collector
-│       └── env vars via docker-compose.yml environment:
+│   ├── app (python:3.12-slim, built on VM)
+│   │   ├── main.py — orchestrator + live collector
+│   │   └── env vars via docker-compose.yml
+│   │
+│   └── monitor (python:3.12-slim, Dockerfile.monitor)
+│       ├── run_monitor.py — incident management loop
+│       ├── └── env vars: DATABASE_URL, TELEGRAM_*, INCIDENT_*
+│       └── incident_packages volume (persistent) environment:
 │           DATABASE_URL, LOG_LEVEL, LOG_FORMAT,
 │           DISCOVERY_*, LIVE_*, TELEGRAM_*
 │
@@ -780,7 +895,7 @@ CMD ["python", "main.py"]
 ### Update workflow
 1. Push changes to `saksh-2505/tennis_bot_vf`
 2. SSH: `cd ~/tennis_bot && git pull`
-3. `docker compose build app && docker compose up -d`
+3. `docker compose build app monitor && docker compose up -d`
 
 ---
 
