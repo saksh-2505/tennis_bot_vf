@@ -31,7 +31,7 @@ def check_commands(session: Session) -> None:
         return
 
     offset = _read_offset()
-        logger.info("Telegram bot poll start (offset=%d)", offset)
+    logger.info("Telegram bot poll start (offset=%d)", offset)
     try:
         updates = _fetch_updates(offset)
         logger.info("Telegram poll returned %d updates", len(updates))
