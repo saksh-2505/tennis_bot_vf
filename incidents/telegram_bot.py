@@ -27,22 +27,32 @@ HELP_TEXT = (
 
 def check_commands(session: Session) -> None:
     if not _enabled:
+        logger.debug("Telegram bot disabled — TELEGRAM_BOT_TOKEN not set")
         return
 
     offset = _read_offset()
+    logger.debug("Telegram bot poll start (offset=%d)", offset)
     try:
         updates = _fetch_updates(offset)
+        logger.debug("Telegram poll returned %d updates", len(updates))
         for update in updates:
             msg = update.get("message", {})
             chat_id = msg.get("chat", {}).get("id")
             cmd_text = msg.get("text", "").strip()
+            logger.debug(
+                "Telegram update: chat=%s cmd=%r",
+                chat_id, cmd_text,
+            )
             if cmd_text and cmd_text.startswith("/") and chat_id:
                 reply = _handle_command(session, cmd_text)
+                logger.info("Telegram reply to chat=%s for %r", chat_id, cmd_text)
                 _send_reply(chat_id, reply)
+                logger.debug("Telegram reply sent for chat=%s", chat_id)
             new_offset = update.get("update_id", offset) + 1
             if new_offset > offset:
                 offset = new_offset
         _write_offset(offset)
+        logger.debug("Telegram bot poll done (new offset=%d)", offset)
     except Exception:
         logger.exception("Telegram bot check failed")
 
@@ -374,13 +384,15 @@ def _incidents(session: Session) -> str:
 
 def _read_offset() -> int:
     try:
-        return int(open(OFFSET_FILE).read().strip())
+        with open(OFFSET_FILE) as f:
+            return int(f.read().strip())
     except (FileNotFoundError, ValueError, OSError):
         return 0
 
 
 def _write_offset(offset: int) -> None:
     try:
-        open(OFFSET_FILE, "w").write(str(offset))
+        with open(OFFSET_FILE, "w") as f:
+            f.write(str(offset))
     except OSError:
         pass
