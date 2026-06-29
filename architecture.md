@@ -6,11 +6,12 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** 68 Python files, 6,697 lines (excl. tests/). Updated 2026-06-29 10:09 UTC.
+**Current Status:** 86 Python files, 8,677 lines (excl. tests/). Updated 2026-06-29 11:33 UTC.
 
-**Auto-generated file stats:** 68 Python files, 6,697 lines (excl. tests/). Updated 2026-06-29 10:09 UTC.
+**Auto-generated file stats:** 86 Python files, 8,677 lines (excl. tests/). Updated 2026-06-29 11:33 UTC.
 
 - **incidents/**: 16 files, 2,564 lines
+- **observability/**: 18 files, 1,980 lines
 - **collector/**: 10 files, 1,290 lines
 - **live_collector/**: 4 files, 615 lines
 - **finalizer/**: 5 files, 411 lines
@@ -1036,7 +1037,159 @@ For bugs:
 | `incidents` | `database` | `orchestrator`, `collector` |
 | `shared` | Nothing internal | Everything else |
 
-## 14. Transformation Metrics
+## 14. Observability Layer (Phase 3)
+
+### Overview
+
+The observability layer is a new top-level module (`observability/`) that provides health monitoring, distributed tracing, structured logging, metrics collection, pipeline diagnostics, and incident integration. It follows the existing module conventions (lazy imports, module-level functions, `__init__.py` exports).
+
+### Module Structure
+
+```
+observability/
+    __init__.py              # Public API exports + initialize_observability()
+    config.py                # Environment-based configuration
+    models.py                # Data models (HealthReport, Trace, Span, MetricPoint, etc.)
+    tracing.py               # TraceContext, TRACE_ID propagation
+    logging.py               # JSON structured logging
+    metrics.py               # MetricsStore (counters, gauges, histograms)
+    utils.py                 # CPU/memory/disk readers
+
+    health/
+        __init__.py          # Health registry, get_health(), get_all_health()
+        _infrastructure.py   # Oracle VM, Docker, PostgreSQL, TimescaleDB checks
+        _collectors.py       # Flashscore, Betting, Player, Registry, Live, Finalizer checks
+        _services.py         # Incident Manager, Notification Service checks
+
+    diagnostics/
+        __init__.py          # PipelineDefinition, validate_pipeline(), validate_platform()
+        _stages.py           # Pipeline definitions (Live Score, Discovery, Odds, Player, Incidents)
+
+    match_monitor.py         # Per-match health tracking
+    service_monitor.py       # Service heartbeat tracking
+    telegram_diagnostics.py  # Telegram pipeline instrumentation
+    incident_integration.py  # Enhanced incident package context
+    api.py                   # Public API functions
+
+    tests/
+        conftest.py          # Mock database module + test config
+        test_tracing.py      # 6 tests
+        test_logging.py      # 6 tests
+        test_metrics.py      # 8 tests
+        test_health.py       # 7 tests
+        test_diagnostics.py  # 7 tests
+        test_match_monitor.py      # 5 tests
+        test_service_monitor.py    # 7 tests
+        test_telegram_diagnostics.py # 8 tests
+        test_incident_integration.py # 5 tests
+        test_api.py          # 9 tests
+```
+
+### Component 1 — Health Monitoring
+
+Every service publishes health via `get_health()` returning a `HealthReport` with status, uptime, last_success, last_error, heartbeat, tasks, latency, CPU, and memory. Services register via `register_health_check(name, fn)`.
+
+**Infrastructure checks:** Oracle VM (uptime), Docker (docker info), PostgreSQL (SELECT 1), TimescaleDB (pg_extension).
+
+**Collector checks:** Flashscore Discovery, Betting Discovery, Player Collector, Match Registry, Live Collector, Match Finalizer — each queries its table's MAX(timestamp) and row count.
+
+**Background service checks:** Incident Manager (incidents table), Notification Service (telegram enabled flag).
+
+### Component 2 — Distributed Tracing
+
+`TraceContext` is a context manager that assigns a globally unique TRACE_ID and nested SPAN_ID. Traces propagate through a `contextvars.ContextVar`, supporting nested parent/child spans with depth limits.
+
+```python
+with TraceContext("discovery", "orchestrator", "orchestrator.service", "platform"):
+    with TraceContext("flashscore_fetch", "collector", "collector.flashscore", "scraping"):
+        ...
+```
+
+Every span records operation, service, module, component, start/end timestamps, status, and metadata. Complete traces are stored in memory and queryable via `get_trace(trace_id)`.
+
+### Component 3 — Structured Logging
+
+Replaces plain-text `logging.basicConfig()` with JSON-formatted log entries:
+
+```json
+{
+  "timestamp": "2026-06-29T12:00:00.000+00:00",
+  "level": "INFO",
+  "logger": "orchestrator.service",
+  "message": "Discovery cycle complete",
+  "trace_id": "a1b2c3d4e5f6g7h8",
+  "span_id": "i9j0k1l2m3n4",
+  "service": "orchestrator",
+  "component": "platform",
+  "metadata": {"match_count": 12}
+}
+```
+
+The `StructuredLogger` wrapper adds `.operation()` for structured operational logging. A `TraceFilter` injects current trace/span IDs into every record. Falls back to plain-text format when `OBSERVABILITY_LOG_FORMAT=text`.
+
+### Component 4 — Metrics & Telemetry
+
+Thread-safe `MetricsStore` singleton with Counter, Gauge, and Histogram (with percentile snapshots). Queryable via `get_metrics().snapshot()`. Supports up to 100,000 history points.
+
+| Metric type | Methods | Use case |
+|-------------|---------|----------|
+| Counter | inc(), get(), reset() | Request counts, error counts |
+| Gauge | set(), get() | CPU, memory, active connections |
+| Histogram | observe(), snapshot() | Latency distributions |
+
+### Component 5 — Pipeline Diagnostics
+
+`PipelineDefinition` defines a named sequence of stages, each with a validator function. `validate_pipeline(name)` runs all stages and reports the first failure with timing.
+
+**Defined pipelines:**
+
+| Pipeline | Stages | Failure detection |
+|----------|--------|-------------------|
+| Live Score | Flashscore Fetch → Parser → Registry → Collector → Database → Finalizer → Completed Match | Stale/empty tables |
+| Discovery | Flashscore Fetch → Betting Site Fetch → Registry | Missing registry entries |
+| Odds | Betting Site Fetch → Parser → Registry → Collector → Database | Stale odds data |
+| Player Updates | Tennis Explorer Fetch → Parser → Database | Stale player data |
+| Incident Creation | Monitor Tick → Detection → Notification | Missing incidents |
+
+### Component 6 — Match Monitoring
+
+`MatchMonitor` tracks every LIVE match independently: score heartbeat, odds heartbeat, tick rates, collection latency, match duration. Generates diagnostics when score/odds updates stop, tick rate drops, or finalizer never executes.
+
+### Component 7 — Service Monitoring
+
+`ServiceMonitor` records heartbeats and tracks service state (RUNNING, IDLE, STOPPED, CRASHED, RESTARTING). Services that miss 3 consecutive heartbeat intervals are reported as STOPPED.
+
+### Component 8 — Telegram Diagnostics
+
+Instruments the complete Telegram pipeline: Message Created → Formatting → Escaping → HTTP Request → Telegram Response → Message ID → Logged. Each stage reports PASS/FAIL with timing, HTTP status, message ID, and error details.
+
+### Component 9 — Incident Integration
+
+`build_diagnostic_context()` generates a comprehensive snapshot: health summary, current metrics, service status, collector status, database status, environment info, and match context. `enhance_incident_package()` writes this to the incident package directory as `observability_context.json`.
+
+### Public API
+
+| Function | Returns |
+|----------|---------|
+| `get_platform_health()` | Summary of all service health checks |
+| `get_service_health(name)` | Detailed health report for one service |
+| `get_trace_view(trace_id)` | Complete trace with all spans and timing |
+| `validate_platform_pipelines()` | All pipeline validation results |
+| `validate_named_pipeline(name)` | Single pipeline validation result |
+| `validate_match_pipeline(match_id)` | Per-match pipeline stage analysis |
+| `get_platform_metrics()` | All counter/gauge/histogram snapshots |
+| `get_recent_telegram_diagnostics()` | Recent Telegram pipeline diagnostics |
+| `get_recent_incidents()` | Latest 50 incidents |
+
+### Integration Points
+
+- **No changes to existing business logic** — the observability module is entirely additive
+- Database imports use lazy `from database import SessionLocal` inside functions to avoid import-order issues
+- Health checks query existing tables without modifying them
+- Pipeline validators use existing table structures and time columns
+- Incident integration writes additional diagnostic context without modifying incident package logic
+
+## 15. Transformation Metrics
 
 | Metric | Before | After |
 |--------|--------|-------|
