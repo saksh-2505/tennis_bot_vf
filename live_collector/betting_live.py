@@ -113,52 +113,51 @@ def _parse_odds_pipe(market_pipe: str, market_id: str) -> OddsSnapshot:
 
     Only the BEST (first) back price is used for each selection.
     Lay odds and volumes are not available from this API and remain None.
+
+    Selection IDs are identified by being a 6+ digit token immediately
+    followed by a STATUS_TOKEN (ACTIVE, SUSPENDED, etc.).  This avoids
+    confusion with other large numeric IDs that appear earlier in the pipe
+    but are NOT followed by a status token.
     """
     result = OddsSnapshot()
     parts = market_pipe.split("|")
 
-    selections: list[float | None] = []
+    odds_by_selection: dict[str, float] = {}
 
-    i = 0
-    while i < len(parts):
+    i = 1
+    while i < len(parts) - 1:
         token = parts[i]
+        next_token = parts[i + 1] if i + 1 < len(parts) else ""
 
-        # Look for selection IDs (6+ digit numbers)
-        if token.lstrip("-").isdigit() and len(token) >= 6:
-            sid = int(token)
+        if (
+            token.lstrip("-").isdigit()
+            and len(token) >= 6
+            and next_token in STATUS_TOKENS
+        ):
+            selection_id = token
             i += 1
 
-            # Skip status tokens
             while i < len(parts) and parts[i] in STATUS_TOKENS:
                 i += 1
 
-            # Read first back price (the best available)
             if i < len(parts):
                 try:
                     back_odds = float(parts[i])
                     if back_odds > 0:
-                        selections.append(back_odds)
+                        odds_by_selection[selection_id] = back_odds
                 except ValueError:
                     pass
-                i += 1
-
-                # Skip the volume for this price level (we only track best price)
-                try:
-                    float(parts[i])
-                    i += 1
-                except ValueError:
-                    pass
-
             continue
 
         i += 1
 
-    if len(selections) >= 1:
-        result.back_odds_a = selections[0]
-    if len(selections) >= 2:
-        result.back_odds_b = selections[1]
+    sel_ids = list(odds_by_selection.keys())
+    if len(sel_ids) >= 1:
+        result.back_odds_a = odds_by_selection[sel_ids[0]]
+    if len(sel_ids) >= 2:
+        result.back_odds_b = odds_by_selection[sel_ids[1]]
 
-    if not selections:
+    if not odds_by_selection:
         logger.debug("No odds selections found in pipe for market %s", market_id)
 
     return result
