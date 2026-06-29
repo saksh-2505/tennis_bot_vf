@@ -1,3 +1,4 @@
+"""HTTP client for flashscore.mobi."""
 import logging
 
 import httpx
@@ -5,6 +6,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 MOBILE_LISTING_URL = "https://www.flashscore.mobi/tennis/"
+MOBILE_MATCH_URL = "https://www.flashscore.mobi/match/{match_id}/"
 DESKTOP_MATCH_URL = "https://www.flashscore.com/match/{match_id}/"
 
 HEADERS = {
@@ -29,7 +31,7 @@ def fetch_mobile_listing() -> str:
 
 
 def fetch_match_details(match_id: str) -> str:
-    url = DESKTOP_MATCH_URL.format(match_id=match_id)
+    url = MOBILE_MATCH_URL.format(match_id=match_id)
     with httpx.Client(headers=HEADERS, timeout=TIMEOUT, follow_redirects=True) as client:
         response = client.get(url)
         response.raise_for_status()
@@ -42,7 +44,7 @@ async def fetch_match_details_batch(
     results: dict[str, str] = {}
 
     async def fetch_one(client: httpx.AsyncClient, match_id: str) -> None:
-        url = DESKTOP_MATCH_URL.format(match_id=match_id)
+        url = MOBILE_MATCH_URL.format(match_id=match_id)
         try:
             response = await client.get(url)
             response.raise_for_status()

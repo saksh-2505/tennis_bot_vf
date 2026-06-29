@@ -1,3 +1,4 @@
+"""Pydantic Settings class. Reads from .env file."""
 from pydantic_settings import BaseSettings
 
 

@@ -1,3 +1,4 @@
+"""Betting site discovery: fetch, parse, save markets."""
 import logging
 
 from database import SessionLocal, engine

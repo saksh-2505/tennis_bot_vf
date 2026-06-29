@@ -1,3 +1,4 @@
+"""Match validation: score/odds completeness, duration checks."""
 import logging
 from dataclasses import dataclass
 

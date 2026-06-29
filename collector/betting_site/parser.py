@@ -1,3 +1,4 @@
+"""Betting site parser: JSON response to Match objects, pipe-format odds."""
 from __future__ import annotations
 
 import logging

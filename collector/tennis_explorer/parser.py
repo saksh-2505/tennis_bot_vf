@@ -1,3 +1,4 @@
+"""Tennis Explorer HTML parser: profile, rankings, stats."""
 from __future__ import annotations
 
 import logging

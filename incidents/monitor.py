@@ -1,3 +1,4 @@
+"""Incident monitor: health checks, detection, recovery, auto-resolve."""
 import logging
 import os
 import shutil
@@ -11,6 +12,9 @@ from database import SessionLocal, check_connection
 from incidents.config import (
     COLLECTOR_LABELS,
     COLLECTOR_STALE_SECONDS,
+    COLLECTOR_DISCOVERY_STALE_SECONDS,
+    LIVE_COLLECTOR_STALE_SECONDS,
+    FINALIZER_STALE_SECONDS,
     CPU_THRESHOLD_PERCENT,
     DISK_THRESHOLD_PERCENT,
     MATCH_ODDS_STALE_SECONDS,
@@ -215,7 +219,7 @@ def _check_database(session: Session) -> list[dict]:
 def _check_collectors(session: Session) -> list[dict]:
     incidents = []
     now = datetime.now(timezone.utc)
-    cutoffs = {k: now.timestamp() - COLLECTOR_STALE_SECONDS for k in COLLECTOR_QUERIES}
+    cutoffs = {k: now.timestamp() - COLLECTOR_DISCOVERY_STALE_SECONDS for k in COLLECTOR_QUERIES}
 
     for key, query in COLLECTOR_QUERIES.items():
         try:
@@ -235,7 +239,7 @@ def _check_collectors(session: Session) -> list[dict]:
                     "category": "Collector Failure",
                     "module": COLLECTOR_MODULES.get(key, key),
                     "title": f"{label} health check failed",
-                    "summary": f"No new data for {COLLECTOR_STALE_SECONDS // 3600}h",
+                    "summary": f"No new data for {COLLECTOR_DISCOVERY_STALE_SECONDS // 3600}h",
                     "collector_name": key,
                 })
         except Exception:
@@ -247,7 +251,18 @@ def _check_collectors(session: Session) -> list[dict]:
 def _check_live_collector(session: Session) -> list[dict]:
     incidents = []
     now = datetime.now(timezone.utc)
-    cutoff = now.timestamp() - COLLECTOR_STALE_SECONDS
+    cutoff = now.timestamp() - LIVE_COLLECTOR_STALE_SECONDS
+
+    # Only flag collector stalls if there are actually LIVE matches
+    try:
+        live_count = session.execute(text(
+            "SELECT count(*) FROM tracked_matches WHERE status = 'LIVE' AND tracking_enabled = TRUE"
+        )).scalar() or 0
+    except Exception:
+        live_count = 0
+
+    if live_count == 0:
+        return incidents
 
     try:
         result = session.execute(text(
@@ -262,7 +277,23 @@ def _check_live_collector(session: Session) -> list[dict]:
                     "category": "Collector Failure",
                     "module": "live_collector",
                     "title": "Live Collector appears stalled",
-                    "summary": f"No new score data for {COLLECTOR_STALE_SECONDS // 60}min",
+                    "summary": f"No new score data for {LIVE_COLLECTOR_STALE_SECONDS // 60}min",
+                    "collector_name": "live_collector",
+                })
+
+        odds_result = session.execute(text(
+            "SELECT MAX(timestamp) FROM live_odds"
+        ))
+        odds_last_val = odds_result.scalar()
+        if odds_last_val is not None:
+            odds_last_ts = _to_timestamp(odds_last_val)
+            if odds_last_ts is not None and odds_last_ts < cutoff:
+                incidents.append({
+                    "severity": "WARNING",
+                    "category": "Collector Failure",
+                    "module": "live_collector",
+                    "title": "Live Odds Collector appears stalled",
+                    "summary": f"No new odds data for {LIVE_COLLECTOR_STALE_SECONDS // 60}min",
                     "collector_name": "live_collector",
                 })
     except Exception:
@@ -273,7 +304,7 @@ def _check_live_collector(session: Session) -> list[dict]:
 def _check_finalizer(session: Session) -> list[dict]:
     incidents = []
     now = datetime.now(timezone.utc)
-    cutoff = now.timestamp() - COLLECTOR_STALE_SECONDS
+    cutoff = now.timestamp() - FINALIZER_STALE_SECONDS
     try:
         result = session.execute(text(
             "SELECT MAX(finalized_at) FROM completed_matches"
@@ -287,7 +318,7 @@ def _check_finalizer(session: Session) -> list[dict]:
                     "category": "Collector Failure",
                     "module": "finalizer",
                     "title": "Match Finalizer appears stalled",
-                    "summary": f"No matches finalized for {COLLECTOR_STALE_SECONDS // 60}min",
+                    "summary": f"No matches finalized for {FINALIZER_STALE_SECONDS // 60}min",
                     "collector_name": "finalizer",
                 })
     except Exception:

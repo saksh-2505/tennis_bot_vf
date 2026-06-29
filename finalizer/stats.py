@@ -1,3 +1,4 @@
+"""Match statistics calculation: tick counts, gaps, duplicates."""
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone

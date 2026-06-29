@@ -1,3 +1,4 @@
+"""Incident monitor entry point (Docker container)."""
 import logging
 import signal
 import sys

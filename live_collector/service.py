@@ -20,6 +20,14 @@ _score_hash: dict[int, str] = {}
 _odds_hash: dict[int, str] = {}
 _collection_active: bool = False
 
+# Heartbeat: updated every tick so the incident monitor can detect
+# a running-but-silent collector.
+_last_tick_ts: float = 0.0
+
+
+def get_heartbeat() -> float:
+    return _last_tick_ts
+
 
 def run_live_collection_loop() -> None:
     """Entry point for the background daemon thread."""
@@ -46,6 +54,7 @@ def run_live_collection_loop() -> None:
         except Exception:
             logger.exception("Live collection tick failed")
 
+        _update_heartbeat()
         time.sleep(settings.LIVE_ODDS_INTERVAL_SECONDS)
 
 
@@ -68,7 +77,7 @@ def _get_live_matches() -> list[dict]:
         upcoming = (
             session.query(TrackedMatch)
             .filter(
-                TrackedMatch.status == "DISCOVERED",
+                TrackedMatch.status.in_(["DISCOVERED", "SCHEDULED"]),
                 TrackedMatch.tracking_enabled.is_(True),
                 TrackedMatch.scheduled_start.isnot(None),
                 TrackedMatch.scheduled_start <= five_min,
@@ -171,8 +180,12 @@ async def _collect_tick(matches: list[dict]) -> None:
 
     if score_batch:
         _bulk_insert("live_scores", score_batch)
+        logger.info("Inserted %d score ticks for %d matches",
+                     len(score_batch), len({r["tracked_match_id"] for r in score_batch}))
     if odds_batch:
         _bulk_insert("live_odds", odds_batch)
+        logger.info("Inserted %d odds ticks for %d matches",
+                     len(odds_batch), len({r["tracked_match_id"] for r in odds_batch}))
 
 
 # ---- score throttling ---------------------------------------------------
@@ -188,6 +201,14 @@ def _score_due(match_id: int) -> bool:
         _score_last_poll[match_id] = now
         return True
     return False
+
+
+# ---- heartbeat -----------------------------------------------------------
+
+
+def _update_heartbeat() -> None:
+    global _last_tick_ts
+    _last_tick_ts = time.monotonic()
 
 
 # ---- bulk insert --------------------------------------------------------
@@ -212,4 +233,4 @@ def _bulk_insert(table_name: str, rows: list[dict]) -> None:
 
 
 def _flashscore_url(match_id: str) -> str:
-    return f"https://www.flashscore.com/match/{match_id}/"
+    return f"https://www.flashscore.mobi/match/{match_id}/"

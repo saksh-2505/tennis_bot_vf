@@ -1,3 +1,4 @@
+"""Match registry. Cross-references Flashscore matches with Betting Site markets."""
 import logging
 from typing import TYPE_CHECKING
 
@@ -40,25 +41,25 @@ def build_match_registry() -> list["TrackedMatch"]:
             candidates.extend(bt_by_players.get(key1, []))
             candidates.extend(bt_by_players.get(key2, []))
 
-            if not candidates:
-                logger.warning(
-                    "Flashscore match %s (%s vs %s) has no matching betting market — skipping",
-                    fs.flashscore_match_id, fs.player_a, fs.player_b,
-                )
-                continue
-
-            if len(candidates) > 1:
-                logger.error(
-                    "Flashscore match %s (%s vs %s) has %d matching betting markets — skipping",
-                    fs.flashscore_match_id, fs.player_a, fs.player_b, len(candidates),
-                )
-                continue
-
-            bt = candidates[0]
-            used_bt_market_ids.add(bt.market_id)
-
             p1 = session.query(Player).filter_by(full_name=fs.player_a).first()
             p2 = session.query(Player).filter_by(full_name=fs.player_b).first()
+
+            betting_market_id: str | None = None
+
+            if not candidates:
+                logger.info(
+                    "Flashscore match %s (%s vs %s) has no betting market — scores only",
+                    fs.flashscore_match_id, fs.player_a, fs.player_b,
+                )
+            else:
+                if len(candidates) > 1:
+                    logger.warning(
+                        "Flashscore match %s (%s vs %s) has %d matching betting markets — using first",
+                        fs.flashscore_match_id, fs.player_a, fs.player_b, len(candidates),
+                    )
+                bt = candidates[0]
+                betting_market_id = bt.market_id
+                used_bt_market_ids.add(bt.market_id)
 
             if not p1:
                 logger.warning(
@@ -78,7 +79,7 @@ def build_match_registry() -> list["TrackedMatch"]:
             )
 
             if existing:
-                existing.betting_market_id = bt.market_id
+                existing.betting_market_id = betting_market_id
                 existing.player1_id = p1.player_id if p1 else None
                 existing.player2_id = p2.player_id if p2 else None
                 existing.player1_name = fs.player_a
@@ -90,7 +91,7 @@ def build_match_registry() -> list["TrackedMatch"]:
             else:
                 tm = TrackedMatch(
                     flashscore_match_id=fs.flashscore_match_id,
-                    betting_market_id=bt.market_id,
+                    betting_market_id=betting_market_id,
                     player1_id=p1.player_id if p1 else None,
                     player2_id=p2.player_id if p2 else None,
                     player1_name=fs.player_a,
@@ -102,10 +103,16 @@ def build_match_registry() -> list["TrackedMatch"]:
                 session.add(tm)
                 results.append(tm)
 
-            logger.info(
-                "Registered match: %s vs %s (%s)",
-                fs.player_a, fs.player_b, fs.tournament,
-            )
+            if betting_market_id:
+                logger.info(
+                    "Registered match: %s vs %s (%s) — has odds",
+                    fs.player_a, fs.player_b, fs.tournament,
+                )
+            else:
+                logger.info(
+                    "Registered match: %s vs %s (%s) — scores only",
+                    fs.player_a, fs.player_b, fs.tournament,
+                )
 
         for bt in bt_matches:
             if bt.market_id not in used_bt_market_ids:

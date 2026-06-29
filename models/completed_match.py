@@ -1,3 +1,4 @@
+"""CompletedMatch ORM model."""
 from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Float, Integer, String

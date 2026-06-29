@@ -1,3 +1,4 @@
+"""HTTP client for tennisexplorer.com."""
 import logging
 
 import httpx

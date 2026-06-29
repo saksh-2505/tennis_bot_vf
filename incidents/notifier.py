@@ -1,3 +1,4 @@
+"""Telegram alert sending for CRITICAL incidents."""
 import logging
 import os
 

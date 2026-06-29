@@ -1,3 +1,4 @@
+"""Live Flashscore score scraper for a single match."""
 import hashlib
 import json
 import logging
@@ -6,25 +7,27 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import httpx
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 
 from config import settings
 
 logger = logging.getLogger(__name__)
 
-MATCH_URL = "https://www.flashscore.com/match/{match_id}/"
+MOBILE_MATCH_URL = "https://www.flashscore.mobi/match/{match_id}/"
 
-HEADERS = {
+MOBILE_HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "Mozilla/5.0 (Linux; Android 14; SM-S928B) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/125.0.0.0 Safari/537.36"
+        "Chrome/125.0.0.0 Mobile Safari/537.36"
     ),
     "Accept": "text/html,application/xhtml+xml",
     "Accept-Language": "en-US,en;q=0.9",
 }
 
 TIMEOUT = 30.0
+
+FINISHED_KEYWORDS = {"FINISHED", "RETIRED", "WALKOVER", "CANCELLED", "ABANDONED", "POSTPONED"}
 
 
 @dataclass
@@ -56,96 +59,127 @@ class ScoreSnapshot:
 
 
 def poll_flashscore_score(match_id: str, flashscore_match_id: str) -> ScoreSnapshot:
-    """Fetch the Flas hscore match page and extract the current score state."""
-    url = MATCH_URL.format(match_id=flashscore_match_id)
+    """Fetch the Flashscore mobile match page and extract the current score state."""
+    url = MOBILE_MATCH_URL.format(match_id=flashscore_match_id)
     try:
         with httpx.Client(
-            headers=HEADERS, timeout=TIMEOUT, follow_redirects=True
+            headers=MOBILE_HEADERS, timeout=TIMEOUT, follow_redirects=True
         ) as client:
             resp = client.get(url)
             resp.raise_for_status()
-            return _parse_live_score(resp.text)
-    except Exception:
-        logger.debug("Flashscore poll failed for match %s", flashscore_match_id)
-        return ScoreSnapshot()
+            snap = _parse_live_score(resp.text)
+            if snap.set_score_a is None and not snap.match_finished:
+                logger.warning(
+                    "Flashscore parser returned empty for %s (HTTP %d)",
+                    flashscore_match_id, resp.status_code,
+                )
+            return snap
+    except httpx.HTTPStatusError as e:
+        logger.warning("Flashscore HTTP error for %s: %d", flashscore_match_id, e.response.status_code)
+    except Exception as e:
+        logger.debug("Flashscore poll failed for %s: %s", flashscore_match_id, e)
+    return ScoreSnapshot()
 
 
 def _parse_live_score(html: str) -> ScoreSnapshot:
+    """Parse Flashscore mobile match page into ScoreSnapshot.
+
+    Flashscore.mobi returns static HTML with scores directly embedded.
+    The structure for a match page is:
+
+        <h3>Player1 (Ctry) - Player2 (Ctry)</h3>
+        <div class="detail"><b>2-1</b>  (6-7,7-5,6-3)</div>
+        <div class="detail">Finished</div>  ← or live status
+        <div class="detail">28.06.2026 18:30</div>
+
+    For live in-progress matches the format is the same but without
+    ``Finished`` and set/game scores reflect current state.
+    """
     soup = BeautifulSoup(html, "html.parser")
     snap = ScoreSnapshot()
 
-    # -- detect finished --------------------------------------------------
-    detail = soup.find("div", class_="detailScore")
-    if detail:
-        status_elem = detail.find(
-            "div", class_=re.compile(r"status|matchStatus", re.I)
-        )
-        if status_elem:
-            text = status_elem.get_text(strip=True).upper()
-            if "FINISHED" in text or "RETIRED" in text:
-                snap.match_finished = True
-
-    if not snap.match_finished:
-        all_text = soup.get_text()
-        if "Match Finished" in all_text or "RETIRED" in all_text:
-            snap.match_finished = True
-
-    if snap.match_finished:
+    details = soup.find_all("div", class_="detail")
+    if not details:
         return snap
 
-    # -- set scores -------------------------------------------------------
-    set_divs = soup.find_all(
-        "div", class_=re.compile(r"set.*score|score.*set", re.I)
-    )
-    sets_a: list[int] = []
-    sets_b: list[int] = []
-    for sd in set_divs:
-        vals = [t.strip() for t in sd.get_text(separator=" ", strip=True).split() if t.strip().isdigit()]
-        if vals:
-            vals = vals[-2:]
-        if len(vals) >= 2:
+    # -- detail[0]: set score + game scores -------------------------------
+    first = details[0]
+    b_tag = first.find("b")
+    if b_tag:
+        set_text = b_tag.get_text(strip=True)
+        parts = set_text.split("-")
+        if len(parts) == 2:
             try:
-                sets_a.append(int(vals[-2]))
-                sets_b.append(int(vals[-1]))
+                snap.set_score_a = int(parts[0])
+                snap.set_score_b = int(parts[1])
             except ValueError:
-                continue
+                pass
 
-    if sets_a:
-        snap.set_score_a = len([s for s, _ in zip(sets_a, sets_b) if s is not None])
-        snap.set_score_b = len([s for _, s in zip(sets_a, sets_b) if s is not None])
+        # Game scores follow the <b> tag in parentheses
+        # e.g. (6-7,7-5,6-3)
+        full_text = first.get_text(strip=True)
+        game_m = re.search(r"\(([^)]+)\)", full_text)
+        if game_m:
+            game_pairs = game_m.group(1).split(",")
+            if game_pairs:
+                last_game = game_pairs[-1].strip()
+                gp = last_game.split("-")
+                if len(gp) == 2:
+                    try:
+                        snap.game_score_a = int(gp[0])
+                        snap.game_score_b = int(gp[1])
+                    except ValueError:
+                        pass
 
-    current_set_idx = len(sets_a)
+    # -- detail[1]: match status ------------------------------------------
+    if len(details) >= 2:
+        status_text = details[1].get_text(strip=True).upper()
+        if any(kw in status_text for kw in FINISHED_KEYWORDS):
+            snap.match_finished = True
+        elif "LIVE" in status_text or "IN PLAY" in status_text:
+            pass  # match is live, keep going
 
-    # -- game scores -------------------------------------------------------
-    game_blocks = soup.find_all(
-        "div", class_=re.compile(r"game.*score|score.*game", re.I)
-    )
-    if not game_blocks:
-        snap.game_score_a = 0
-        snap.game_score_b = 0
+    # -- detail[2]: date/time (not used currently) ------------------------
 
-    # -- point score --------------------------------------------------------
-    point_el = soup.find(
-        "span", class_=re.compile(r"point|scoreboard", re.I)
-    )
-    if point_el:
-        pt = point_el.get_text(strip=True)
-        snap.point_score = pt if pt else None
-
-    # -- server -------------------------------------------------------------
-    serve_el = soup.find(
-        "span", class_=re.compile(r"serve|server", re.I)
-    )
-    if serve_el:
-        snap.server = serve_el.get_text(strip=True)
-
-    # -- title text for set/game fallback -----------------------------------
+    # -- point score from title if available -----------------------------
     title = soup.find("title")
-    title_text = title.get_text() if title else ""
-    m = re.search(r"(\d+)\s*-\s*(\d+)", title_text)
-    if m and snap.set_score_a is None:
-        snap.set_score_a = int(m.group(1))
-        snap.set_score_b = int(m.group(2))
+    if title:
+        title_text = title.get_text(strip=True)
+        pt_m = re.search(r"(\d+)\s*[-:]\s*(\d+)(?:\s|$)", title_text)
+        if pt_m and snap.game_score_a is None and snap.game_score_b is None:
+            try:
+                snap.game_score_a = int(pt_m.group(1))
+                snap.game_score_b = int(pt_m.group(2))
+            except ValueError:
+                pass
+
+    # -- Parse per-set game scores from detail-tab-content ----------------
+    tab = soup.find(id="detail-tab-content")
+    if tab:
+        set_games_a: list[int] = []
+        set_games_b: list[int] = []
+        for h4 in tab.find_all("h4"):
+            text = h4.get_text(strip=True)
+            set_m = re.search(r"Set\s+\d+:\s*(\d+)\s*[-:]\s*(\d+)", text, re.IGNORECASE)
+            if set_m:
+                try:
+                    set_games_a.append(int(set_m.group(1)))
+                    set_games_b.append(int(set_m.group(2)))
+                except ValueError:
+                    pass
+
+        # Only set set_score from detail-tab-content if <b> tag parsing
+        # failed (it's more reliable when available)
+        if snap.set_score_a is None and set_games_a:
+            wins_a = sum(1 for ga, gb in zip(set_games_a, set_games_b) if ga > gb)
+            wins_b = sum(1 for ga, gb in zip(set_games_a, set_games_b) if gb > ga)
+            snap.set_score_a = wins_a
+            snap.set_score_b = wins_b
+
+        # Use game scores from the last completed set as current game score
+        if snap.game_score_a is None and set_games_a:
+            snap.game_score_a = set_games_a[-1]
+            snap.game_score_b = set_games_b[-1]
 
     return snap
 

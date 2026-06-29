@@ -1,3 +1,4 @@
+"""Incident ORM model."""
 from datetime import datetime, timezone
 
 from sqlalchemy import Integer, String, Text

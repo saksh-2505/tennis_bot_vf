@@ -1,3 +1,4 @@
+"""Main platform loop. Discovery, status monitoring, finalizer, live collector spawn."""
 import logging
 import threading
 import time
@@ -13,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 
 def update_match_statuses() -> int:
-    """Transition matches from DISCOVERED → LIVE when their scheduled
-    start time has passed.
+    """Transition matches from DISCOVERED/SCHEDULED → LIVE when their
+    scheduled start time has passed.
 
     Returns the number of matches whose status was changed.
 
@@ -38,7 +39,7 @@ def update_match_statuses() -> int:
             .filter(
                 TrackedMatch.tracking_enabled == True,               # noqa: E712
                 TrackedMatch.scheduled_start.isnot(None),
-                TrackedMatch.status == "DISCOVERED",
+                TrackedMatch.status.in_(["DISCOVERED", "SCHEDULED"]),
             )
             .all()
         )
@@ -51,13 +52,15 @@ def update_match_statuses() -> int:
             if sched.tzinfo is None:
                 sched = sched.replace(tzinfo=timezone.utc)
 
+            old_status = m.status
             if now_utc >= sched:
                 m.status = "LIVE"
                 m.updated_at = now_utc
                 updated += 1
                 logger.info(
-                    "Match %s (%s vs %s) transitioned DISCOVERED → LIVE",
+                    "Match %s (%s vs %s) transitioned %s → LIVE",
                     m.flashscore_match_id, m.player1_name, m.player2_name,
+                    old_status,
                 )
 
         if updated:
@@ -141,6 +144,26 @@ def run_discovery_cycle() -> dict:
 # ============================================================================
 
 
+def _check_force_rediscovery() -> bool:
+    """Return True if no LIVE matches and no upcoming matches are tracked.
+
+    When all matches have finished and none are upcoming, the system is
+    stuck — trigger an early discovery cycle.
+    """
+    import database as db
+    from models.tracked_match import TrackedMatch
+    from datetime import datetime, timezone
+    from sqlalchemy import func
+
+    with db.SessionLocal() as session:
+        live = session.query(func.count(TrackedMatch.id)).filter(
+            TrackedMatch.status.in_(["LIVE", "DISCOVERED", "SCHEDULED"]),
+            TrackedMatch.tracking_enabled.is_(True),
+        ).scalar() or 0
+
+        return live == 0
+
+
 def run_platform() -> None:
     """Main platform loop.
 
@@ -150,6 +173,8 @@ def run_platform() -> None:
     * Discovery is re-executed every ``DISCOVERY_INTERVAL_SECONDS`` (default
       12 h) while the loop is alive.  If ``DISCOVERY_ENABLED`` is ``false``,
       discovery only runs once at startup.
+    * If all matches have expired (zero LIVE/DISCOVERED/SCHEDULED), an
+      early discovery cycle is triggered to recover from a stale state.
 
     The loop never scrapes — ``update_match_statuses()`` is a pure DB
     comparison of ``scheduled_start`` against the current UTC time.
@@ -177,14 +202,37 @@ def run_platform() -> None:
         try:
             transitions = update_match_statuses()
             total_live = _count_by_status("LIVE")
+            total_scheduled = _count_by_status("SCHEDULED")
             total_discovered = _count_by_status("DISCOVERED")
             logger.info(
                 "Status: %d transitioned to LIVE, %d currently LIVE, "
-                "%d still DISCOVERED",
-                transitions, total_live, total_discovered,
+                "%d SCHEDULED, %d DISCOVERED",
+                transitions, total_live, total_scheduled, total_discovered,
             )
+
+            # Auto-rediscovery: if zero LIVE/SCHEDULED/DISCOVERED matches
+            # and enough time has passed since last discovery, force re-run
+            if settings.DISCOVERY_ENABLED:
+                since_last = loop_start - last_discovery
+                min_recovery_interval = 300  # 5 min between rediscovery attempts
+                if since_last >= min_recovery_interval and _check_force_rediscovery():
+                    logger.warning(
+                        "Zero LIVE/SCHEDULED/DISCOVERED matches — "
+                        "forcing early discovery cycle (%.0f s since last)",
+                        since_last,
+                    )
+                    _run_and_log_discovery()
+                    last_discovery = loop_start
         except Exception:
             logger.exception("Status monitor tick failed")
+
+        # ---- Finalizer (FINISHED → completed_matches) --------------------
+        try:
+            finalized = _run_finalizer()
+            if finalized:
+                logger.info("Finalized %d matches", finalized)
+        except Exception:
+            logger.exception("Match finalizer tick failed")
 
         # ---- Scheduled discovery -----------------------------------------
         if settings.DISCOVERY_ENABLED:
@@ -265,6 +313,16 @@ def _count_by_status(status: str) -> int:
             .filter(TrackedMatch.status == status)
             .count()
         )
+
+
+def _run_finalizer() -> int:
+    """Run the match finalizer and return the number of finalized matches."""
+    import database as db
+    from finalizer.service import run_match_finalizer
+
+    with db.SessionLocal() as session:
+        completed = run_match_finalizer(session)
+        return len(completed)
 
 
 def _spawn_live_collector() -> None:

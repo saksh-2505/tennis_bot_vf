@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""External health monitor: downtime alerts, error digests, DuckDNS."""
 """Tennis Bot monitor — health checks, alerts, daily reports, DuckDNS update.
 
 Runs via cron every 5 minutes. Sends Telegram notifications for:
@@ -18,16 +19,19 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
-BOT_TOKEN = "8300876741:AAH45rKPqG0aD3aonbtXxgXgQd-Ue_RZzKw"
-CHAT_ID = "1825307566"
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+if not BOT_TOKEN or not CHAT_ID:
+    print("ERROR: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set in environment")
+    sys.exit(1)
 COMPOSE_DIR = os.path.expanduser("~/tennis_bot")
 MONITOR_DIR = os.path.join(COMPOSE_DIR, "monitor")
 STATE_FILE = os.path.join(MONITOR_DIR, "state.json")
 LOG_FILE = "/tmp/tennis_bot_monitor.log"
 
-DUCKDNS_DOMAIN = "tennisbotdata"
-DUCKDNS_TOKEN = "0d53b513-7a68-46fa-a547-81be029ede84"
-DUCKDNS_IP = "161.118.182.103"
+DUCKDNS_DOMAIN = os.environ.get("DUCKDNS_DOMAIN", "tennisbotdata")
+DUCKDNS_TOKEN = os.environ.get("DUCKDNS_TOKEN", "")
+DUCKDNS_IP = os.environ.get("DUCKDNS_IP", "161.118.182.103")
 
 
 def log(msg: str) -> None:

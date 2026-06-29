@@ -6,8 +6,27 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** Phase 1 (Match Discovery) complete. Phase 2.0 (Match Registry) complete. Phase 2.1 (Discovery Orchestrator) complete. Phase 2 (Live Data Collection) built. Phase 2.2 (Match Finalizer) built — `completed_matches` table, stats/validation pipeline. Phase 2.3 (Monitor) built — health checks, Telegram notifications, DuckDNS. Phase 3.1 (Incident Management) built and deployed — continuous monitoring, incident dedup, diagnostic packages, safe recovery. Platform deployed to Oracle Cloud Always Free (ARM, 4 OCPU, 15 GB RAM, 49 GB disk). Phases 4–10 are stubbed.
+**Current Status:** 68 Python files, 6,698 lines (excl. tests/). Updated 2026-06-29 09:20 UTC.
 
+**Auto-generated file stats:** 68 Python files, 6,698 lines (excl. tests/). Updated 2026-06-29 09:20 UTC.
+
+- **incidents/**: 16 files, 2,564 lines
+- **collector/**: 10 files, 1,290 lines
+- **live_collector/**: 4 files, 616 lines
+- **finalizer/**: 5 files, 411 lines
+- **models/**: 8 files, 354 lines
+- **orchestrator/**: 2 files, 335 lines
+- **scripts/**: 6 files, 333 lines
+- **monitor/**: 1 files, 299 lines
+- **root/**: 6 files, 281 lines
+- **registry/**: 2 files, 130 lines
+- **shared/**: 2 files, 79 lines
+- **backtest/**: 1 files, 1 lines
+- **dashboard/**: 1 files, 1 lines
+- **execution/**: 1 files, 1 lines
+- **replay/**: 1 files, 1 lines
+- **research/**: 1 files, 1 lines
+- **storage/**: 1 files, 1 lines
 ---
 
 ## 2. System Architecture
@@ -930,3 +949,102 @@ Per the roadmap, each phase must satisfy its Definition of Done before moving fo
 8. Move to next phase
 
 **Never implement multiple phases simultaneously.**
+
+---
+
+## 11. Repository Structure (Post-Transformation)
+
+```
+sports-trading/
+├── main.py                     # Platform entry point
+├── config.py                   # Pydantic settings
+├── database.py                 # SQLAlchemy engine + SessionLocal
+├── logger.py                   # Logging configuration
+├── run_monitor.py              # Incident monitor entry
+├── CONTRIBUTING.md             # Engineering standards
+│
+├── shared/                     # Reusable utilities
+│   ├── httpx_client.py         # Centralized HTTP client
+│   └── notify.py               # Centralized Telegram sender
+│
+├── collector/                  # Data collectors
+│   ├── flashscore/
+│   ├── betting_site/
+│   └── tennis_explorer/
+│
+├── models/                     # ORM models
+├── orchestrator/service.py     # Main platform loop
+├── registry/service.py         # Match registry
+├── finalizer/                  # Match finalization
+├── live_collector/             # Live data polling
+│
+├── incidents/
+│   ├── telegram_bot/           # Split into 7 files
+│   │   ├── __init__.py
+│   │   ├── router.py           # polling, routing, offset
+│   │   ├── helpers.py          # send_reply, HTML escaping
+│   │   ├── offset_store.py     # offset file persistence
+│   │   ├── handlers_match.py   # /matches, /match, /today etc.
+│   │   ├── handlers_live.py    # /scores, /odds, history
+│   │   ├── handlers_player.py  # /players, /player
+│   │   └── handlers_system.py  # /status, /incidents, /db_stats
+│   └── ... (monitor, service, models, config, recovery, etc.)
+│
+├── monitor/tennis_bot_monitor.py  # Credentials now from env vars
+├── tests/
+├── docs/                       # Centralized documentation
+│   ├── architecture.md         #   this file
+│   ├── database.md             #   schema, hypertables, indexes
+│   ├── code_index.md           #   every module with API + deps
+│   ├── project_state.md        #   completed work, blockers, roadmap
+│   └── adr/                    #   10 Architecture Decision Records
+├── scripts/                    # AI Context Engine
+│   ├── generate_feature_context.py
+│   ├── generate_incident_package.py
+│   ├── update_code_index.py
+│   ├── dependency_graph.py
+│   └── validate_module_boundaries.py
+└── .ai/                        # AI development config
+    ├── RULES.md                # AI coding rules
+    ├── context_config.yaml     # per-module load recommendations
+    └── agent_definitions.yaml  # specialized agent team
+```
+
+## 12. AI Workflow
+
+Every AI session loads:
+1. `.ai/RULES.md` — coding rules
+2. `docs/code_index.md` — module overview
+3. `docs/database.md` — schema reference
+4. Relevant module files via `scripts/generate_feature_context.py`
+
+For bugs:
+1. `scripts/generate_incident_package.py` — collect logs + diff
+2. Read related module documentation
+3. Read relevant test files
+4. Fix and verify
+
+## 13. Module Boundary Rules
+
+| Module | May Import | May NOT Import |
+|--------|-----------|----------------|
+| `collector/*` | `models`, `shared`, `database` | `orchestrator`, `incidents`, `finalizer` |
+| `registry` | `models`, `database` | `collector`, `incidents`, `finalizer` |
+| `orchestrator` | Everything | `incidents` |
+| `finalizer` | `models` | `collector`, `incidents` |
+| `live_collector` | `models`, `config` | `incidents`, `registry` |
+| `incidents` | `database` | `orchestrator`, `collector` |
+| `shared` | Nothing internal | Everything else |
+
+## 14. Transformation Metrics
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Largest file | 1,211 lines (telegram_bot.py) | ~200 lines (each handler) |
+| Files with module docs | 3 / 47 | 47 / 47 |
+| Telegram implementations | 3 (different signatures) | 1 (shared/notify.py) |
+| Hardcoded credentials | 3 tokens in source | 0 (all env vars) |
+| Documentation files | 1 (architecture.md) | 5 + 10 ADRs |
+| AI config files | 0 | 3 (.ai/) |
+| Automation scripts | 0 | 5 (scripts/) |
+| Module boundary enforcement | 0 | scripts/validate_module_boundaries.py |

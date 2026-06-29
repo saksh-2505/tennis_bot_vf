@@ -1,4 +1,6 @@
+"""Live betting odds scraper for a single market."""
 import hashlib
+import json
 import logging
 from dataclasses import dataclass
 
@@ -21,6 +23,8 @@ HEADERS = {
 
 TIMEOUT = 30.0
 
+STATUS_TOKENS = {"ACTIVE", "SUSPENDED", "REMOVED", "LOSER", "WINNER", "BALL_RUNNING", "OPEN"}
+
 
 @dataclass
 class OddsSnapshot:
@@ -34,7 +38,7 @@ class OddsSnapshot:
     def any_valid(self) -> bool:
         return any(
             o is not None
-            for o in [self.back_odds_a, self.back_odds_b, self.lay_odds_a, self.lay_odds_b]
+            for o in [self.back_odds_a, self.back_odds_b]
         )
 
     def content_hash(self) -> str:
@@ -48,9 +52,10 @@ class OddsSnapshot:
 def poll_betting_odds(market_id: str) -> OddsSnapshot:
     """Fetch live odds from the betting API and return a snapshot.
 
-    The API returns a pipe-delimited string. We try to extract back and
-    lay odds for both runners.  At least one odds value must be non-None
-    for the tick to be logged.
+    The API returns a JSON array. The first element is a pipe-delimited
+    market-data string that contains back-odds levels for each selection
+    (runner).  We extract only the best available back odds for the first
+    two runners and ignore lay odds (not present in this API).
     """
     try:
         with httpx.Client(
@@ -61,77 +66,99 @@ def poll_betting_odds(market_id: str) -> OddsSnapshot:
                 data={"market_ids[]": market_id},
             )
             resp.raise_for_status()
-            return _parse_odds_pipe(resp.text)
-    except Exception:
-        logger.debug("Odds poll failed for market %s", market_id)
+            return _parse_odds_response(resp.text, market_id)
+    except httpx.HTTPStatusError as e:
+        logger.warning("Odds HTTP error for market %s: %d", market_id, e.response.status_code)
+    except Exception as e:
+        logger.debug("Odds poll failed for market %s: %s", market_id, e)
+    return OddsSnapshot()
+
+
+def _parse_odds_response(body: str, market_id: str) -> OddsSnapshot:
+    """Parse the JSON array response from the odds API."""
+    if not body or not body.strip():
+        logger.debug("Empty odds response for market %s", market_id)
         return OddsSnapshot()
 
-
-def _parse_odds_pipe(data: str) -> OddsSnapshot:
-    if not data or not data.strip():
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        logger.warning("Invalid JSON odds response for market %s", market_id)
         return OddsSnapshot()
 
-    parts = data.split("|")
+    if not isinstance(data, list) or len(data) == 0:
+        logger.debug("No data in odds response for market %s", market_id)
+        return OddsSnapshot()
+
+    # The first element is the market-data pipe string
+    market_pipe = data[0]
+    if not isinstance(market_pipe, str) or not market_pipe.strip():
+        logger.debug("No market data pipe for market %s", market_id)
+        return OddsSnapshot()
+
+    # Check for null response
+    # The API returns "null" or "[null]" for closed/unavailable markets
+    if market_pipe.strip() in ("null", "None", ""):
+        logger.debug("Null market data for market %s (possibly closed)", market_id)
+        return OddsSnapshot()
+
+    return _parse_odds_pipe(market_pipe, market_id)
+
+
+def _parse_odds_pipe(market_pipe: str, market_id: str) -> OddsSnapshot:
+    """Parse a pipe-delimited market-data string into OddsSnapshot.
+
+    Pipe format (simplified):
+      market_id||OPEN|...|selection_id_a|ACTIVE|back_price_1|volume_1|back_price_2|volume_2|...|selection_id_b|ACTIVE|back_price_1|volume_1|...
+
+    Only the BEST (first) back price is used for each selection.
+    Lay odds and volumes are not available from this API and remain None.
+    """
     result = OddsSnapshot()
+    parts = market_pipe.split("|")
 
-    selections: dict[int, float | None] = {}
-    selection_id = 0
+    selections: list[float | None] = []
 
-    idx = 1
-    while idx < len(parts) - 2:
-        if not parts[idx].replace(".", "").isdigit():
-            idx += 1
+    i = 0
+    while i < len(parts):
+        token = parts[i]
+
+        # Look for selection IDs (6+ digit numbers)
+        if token.lstrip("-").isdigit() and len(token) >= 6:
+            sid = int(token)
+            i += 1
+
+            # Skip status tokens
+            while i < len(parts) and parts[i] in STATUS_TOKENS:
+                i += 1
+
+            # Read first back price (the best available)
+            if i < len(parts):
+                try:
+                    back_odds = float(parts[i])
+                    if back_odds > 0:
+                        selections.append(back_odds)
+                except ValueError:
+                    pass
+                i += 1
+
+                # Skip the volume for this price level (we only track best price)
+                try:
+                    float(parts[i])
+                    i += 1
+                except ValueError:
+                    pass
+
             continue
-        idx += 1
 
-        sid_str = ""
-        while idx < len(parts):
-            token = parts[idx]
-            if token in ("ACTIVE", "SUSPENDED", "REMOVED", "LOSER", "WINNER"):
-                idx += 1
-                break
-            if token.isdigit() and len(token) >= 6:
-                sid_str = token
-                idx += 1
-                if idx < len(parts) and parts[idx] in (
-                    "ACTIVE", "SUSPENDED", "REMOVED", "LOSER", "WINNER",
-                ):
-                    idx += 1
-                    break
-            idx += 1
-        else:
-            break
+        i += 1
 
-        if sid_str:
-            try:
-                sid = int(sid_str)
-            except ValueError:
-                continue
-        else:
-            continue
+    if len(selections) >= 1:
+        result.back_odds_a = selections[0]
+    if len(selections) >= 2:
+        result.back_odds_b = selections[1]
 
-        back_odds = None
-        lay_odds = None
-        while idx < len(parts):
-            try:
-                val = float(parts[idx])
-                if back_odds is None:
-                    back_odds = val
-                elif lay_odds is None:
-                    lay_odds = val
-                    break
-                else:
-                    break
-            except ValueError:
-                break
-            idx += 1
-
-        selections[sid] = back_odds
-
-    sids = sorted(selections.keys())
-    if len(sids) >= 1:
-        result.back_odds_a = selections.get(sids[0])
-    if len(sids) >= 2:
-        result.back_odds_b = selections.get(sids[1])
+    if not selections:
+        logger.debug("No odds selections found in pipe for market %s", market_id)
 
     return result

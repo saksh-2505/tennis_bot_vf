@@ -1,3 +1,4 @@
+"""Flashscore HTML parser: mobile listing, match details, names, dates."""
 from __future__ import annotations
 
 import logging
@@ -115,6 +116,11 @@ def extract_full_names_from_title(html: str) -> tuple[str, str] | None:
     title = re.sub(r"\s+LIVE\s+", " ", title)
     title = re.sub(r"\s*\|\s*Tennis\s*[-–]\s*Flashscore\s*$", "", title).strip()
 
+    # Mobile title: "SCORE_ABBREV | Player1 (Country) - Player2 (Country)"
+    m = re.match(r"^[A-Z]+\s+[A-Z\d\s-]+ \| (.+)$", title)
+    if m:
+        title = m.group(1).strip()
+
     for sep in (" v ", " - "):
         if sep in title:
             parts = title.split(sep, 1)
@@ -146,10 +152,25 @@ def extract_match_date_from_title(html: str) -> date | None:
     return None
 
 
+def extract_match_datetime(html: str) -> datetime | None:
+    """Extract full datetime from <div class=\"detail\"> element (dd.mm.yyyy HH:MM)."""
+    for m in re.finditer(
+        r'detail[^>]*>\s*(\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2})\s*<',
+        html,
+    ):
+        try:
+            dt = datetime.strptime(m.group(1), "%d.%m.%Y %H:%M")
+            return dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
 def build_match(
     raw: RawMatch,
     full_names: tuple[str, str] | None = None,
     match_date: date | None = None,
+    detail_datetime: datetime | None = None,
 ) -> Match:
     if full_names:
         player_a, player_b = full_names
@@ -160,7 +181,10 @@ def build_match(
     player_a = _normalize_name(player_a)
     player_b = _normalize_name(player_b)
 
-    scheduled = _parse_time(raw.scheduled_time_str, match_date)
+    if detail_datetime is not None:
+        scheduled = detail_datetime
+    else:
+        scheduled = _parse_time(raw.scheduled_time_str, match_date)
 
     return Match(
         flashscore_match_id=raw.flashscore_match_id,

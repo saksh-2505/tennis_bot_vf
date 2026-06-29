@@ -1,3 +1,4 @@
+"""LiveOdds ORM model (hypertable)."""
 from datetime import datetime, timezone
 
 from sqlalchemy import Float, Integer, PrimaryKeyConstraint, String

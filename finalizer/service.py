@@ -1,3 +1,4 @@
+"""Match finalization: validate, compute stats, store completed_matches."""
 import logging
 from datetime import datetime, timezone
 

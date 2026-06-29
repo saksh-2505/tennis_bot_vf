@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""Pre-commit hook: auto-update architecture.md with file stats."""
+import subprocess, sys
+from pathlib import Path
+
+BASE = Path(__file__).resolve().parent.parent
+HOOKS_DIR = BASE / ".githooks"
+ARCH = BASE / "architecture.md"
+SCRIPT = BASE / "scripts" / "update_architecture.py"
+
+# Only run if architecture.md or python files changed
+result = subprocess.run(
+    ["git", "diff", "--cached", "--name-only"],
+    capture_output=True, text=True, cwd=BASE,
+)
+changed = result.stdout.splitlines()
+
+relevant = any(
+    f.endswith(".py") or f == "architecture.md" or f.startswith("scripts/")
+    for f in changed
+)
+if not relevant:
+    sys.exit(0)
+
+# Run the architecture update
+if SCRIPT.exists():
+    subprocess.run([sys.executable, str(SCRIPT)], cwd=BASE)
+
+    # Stage the updated architecture.md if changed
+    subprocess.run(["git", "add", "architecture.md"], cwd=BASE)

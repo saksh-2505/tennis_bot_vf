@@ -1,3 +1,4 @@
+"""Incident CRUD: create, resolve, acknowledge."""
 import hashlib
 import logging
 from datetime import datetime, timezone
@@ -28,11 +29,14 @@ def create_incident(
 
     existing = (
         session.query(Incident)
-        .filter(Incident.incident_hash == incident_hash)
+        .filter(
+            Incident.incident_hash == incident_hash,
+            Incident.status.in_(["OPEN", "ACKNOWLEDGED", "RECOVERING"]),
+        )
         .first()
     )
 
-    if existing and existing.status in ("OPEN", "ACKNOWLEDGED", "RECOVERING"):
+    if existing:
         existing.occurrence_count += 1
         existing.last_detected_at = datetime.now(timezone.utc)
         if summary:

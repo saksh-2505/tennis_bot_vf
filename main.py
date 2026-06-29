@@ -1,3 +1,4 @@
+"""Platform entry point. Calls run_platform() from orchestrator.service."""
 import logging
 
 from database import check_connection, init_db

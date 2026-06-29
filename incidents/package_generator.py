@@ -1,3 +1,4 @@
+"""Incident diagnostic package: logs, metrics, state, config."""
 import json
 import logging
 import os

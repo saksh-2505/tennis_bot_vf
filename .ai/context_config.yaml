@@ -1,0 +1,72 @@
+# AI Context Configuration
+
+modules:
+  collector.flashscore:
+    always_load:
+      - collector/flashscore/__init__.py
+      - collector/flashscore/client.py
+      - collector/flashscore/parser.py
+      - models/flashscore.py
+      - shared/httpx_client.py
+    never_load:
+      - incidents/
+      - finalizer/
+      - live_collector/
+
+  incidents:
+    always_load:
+      - incidents/__init__.py
+      - incidents/monitor.py
+      - incidents/service.py
+      - incidents/config.py
+      - incidents/models.py
+      - incidents/telegram_bot/router.py
+      - incidents/telegram_bot/helpers.py
+      - incidents/telegram_bot/offset_store.py
+      - database.py
+    never_load:
+      - collector/
+      - finalizer/
+
+  live_collector:
+    always_load:
+      - live_collector/service.py
+      - live_collector/flashscore_live.py
+      - live_collector/betting_live.py
+      - models/tracked_match.py
+      - config.py
+    never_load:
+      - incidents/
+      - registry/
+
+  finalizer:
+    always_load:
+      - finalizer/service.py
+      - finalizer/stats.py
+      - finalizer/validation.py
+      - models/completed_match.py
+      - models/live_score.py
+      - models/live_odds.py
+      - models/tracked_match.py
+    never_load:
+      - incidents/
+      - collector/
+
+  orchestrator:
+    always_load:
+      - orchestrator/service.py
+      - config.py
+      - database.py
+    never_load:
+      - incidents/telegram_bot/
+
+  registry:
+    always_load:
+      - registry/service.py
+      - models/tracked_match.py
+      - models/flashscore.py
+      - models/bettingsite.py
+      - models/player.py
+    never_load:
+      - incidents/
+      - finalizer/

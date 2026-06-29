@@ -1,0 +1,62 @@
+# AI Engineering Team Definitions
+
+agents:
+
+  architect:
+    model: "deepseek-v4-pro"
+    responsibilities:
+      - Repository structure
+      - Module boundaries
+      - Architectural decisions
+      - Dependency management
+    allowed_files: ["docs/", ".ai/", "scripts/"]
+    context_requirements: ["docs/architecture.md", "docs/code_index.md"]
+
+  backend:
+    model: "deepseek-v4-flash"
+    responsibilities:
+      - All production Python code
+      - New features
+      - Bug fixes
+    allowed_files: [
+      "collector/flashscore/", "collector/betting_site/",
+      "orchestrator/", "registry/", "finalizer/", "live_collector/",
+      "incidents/", "models/", "shared/"
+    ]
+    context_requirements: ["docs/code_index.md", "docs/database.md"]
+
+  database:
+    model: "deepseek-v4-pro"
+    responsibilities:
+      - Schema changes
+      - Migration scripts
+      - Query optimization
+      - Hypertable configuration
+    allowed_files: ["models/", "database.py", "scripts/"]
+    context_requirements: ["docs/database.md"]
+
+  scraper:
+    model: "deepseek-v4-flash"
+    responsibilities:
+      - HTML parsing
+      - HTTP clients
+      - Data extraction
+    allowed_files: ["collector/", "live_collector/flashscore_live.py", "live_collector/betting_live.py"]
+    context_requirements: ["collector/flashscore/parser.py", "collector/flashscore/client.py", "collector/betting_site/parser.py"]
+
+  reviewer:
+    model: "deepseek-v4-pro"
+    responsibilities:
+      - Code review
+      - Architecture compliance
+      - Performance analysis
+    allowed_files: ["*"]
+    context_requirements: ["docs/architecture.md", "docs/code_index.md", "docs/project_state.md"]
+
+  debugger:
+    model: "deepseek-v4-pro"
+    responsibilities:
+      - Root cause analysis
+      - Incident investigation
+    allowed_files: ["*"]
+    context_requirements: ["scripts/generate_incident_package.py"]

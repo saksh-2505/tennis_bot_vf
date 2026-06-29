@@ -1,3 +1,4 @@
+"""LiveScore ORM model (hypertable)."""
 from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Integer, PrimaryKeyConstraint, String

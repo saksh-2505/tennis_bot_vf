@@ -1,3 +1,4 @@
+"""Player ORM model."""
 from datetime import datetime, timezone
 
 from sqlalchemy import Float, Integer, String

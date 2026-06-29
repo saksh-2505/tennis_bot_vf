@@ -1,3 +1,4 @@
+"""Flashscore discovery pipeline and DB persistence."""
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ from .parser import (
     build_match,
     extract_full_names_from_title,
     extract_match_date_from_title,
+    extract_match_datetime,
     filter_singles,
     parse_mobile_listing,
 )
@@ -47,6 +49,7 @@ def save_matches_to_db(matches: list[Match]) -> int:
     FlashscoreFoundMatch.metadata.create_all(bind=engine)
 
     saved = 0
+    updated = 0
     with SessionLocal() as session:
         for m in matches:
             existing = (
@@ -55,6 +58,11 @@ def save_matches_to_db(matches: list[Match]) -> int:
                 .first()
             )
             if existing:
+                if m.scheduled_start_time is not None and existing.scheduled_start_time != m.scheduled_start_time:
+                    existing.scheduled_start_time = m.scheduled_start_time
+                if existing.status != m.status:
+                    existing.status = m.status
+                updated += 1
                 continue
 
             record = FlashscoreFoundMatch(
@@ -71,7 +79,10 @@ def save_matches_to_db(matches: list[Match]) -> int:
 
         session.commit()
 
-    logger.info("Saved %d new matches to flashscorefoundmatches table", saved)
+    logger.info(
+        "Saved %d new, updated %d existing in flashscorefoundmatches table",
+        saved, updated,
+    )
     return saved
 
 
@@ -83,8 +94,11 @@ def _enrich_with_full_names(raw_matches: list[RawMatch]) -> list[Match]:
         for raw in raw_matches:
             detail_html = fetch_match_details(raw.flashscore_match_id)
             full_names = extract_full_names_from_title(detail_html)
-            match_date = extract_match_date_from_title(detail_html)
-            matches.append(build_match(raw, full_names, match_date))
+            detail_dt = extract_match_datetime(detail_html) if detail_html else None
+            match_date = None
+            if detail_dt is None and detail_html:
+                match_date = extract_match_date_from_title(detail_html)
+            matches.append(build_match(raw, full_names, match_date, detail_dt))
     else:
         results = asyncio.run(
             _fetch_details_async(raw_matches)
@@ -95,10 +109,13 @@ def _enrich_with_full_names(raw_matches: list[RawMatch]) -> list[Match]:
             detail_html = results.get(sid)
             full_names = None
             match_date = None
+            detail_dt = None
             if detail_html:
                 full_names = extract_full_names_from_title(detail_html)
-                match_date = extract_match_date_from_title(detail_html)
-            matches.append(build_match(raw, full_names, match_date))
+                detail_dt = extract_match_datetime(detail_html)
+                if detail_dt is None:
+                    match_date = extract_match_date_from_title(detail_html)
+            matches.append(build_match(raw, full_names, match_date, detail_dt))
 
     return matches
 

@@ -1,3 +1,4 @@
+"""incidents package."""
 from incidents.monitor import monitor_platform
 from incidents.service import (
     acknowledge_incident,
