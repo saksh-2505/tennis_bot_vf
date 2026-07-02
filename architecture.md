@@ -6,11 +6,12 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** 88 Python files, 8,953 lines (excl. tests/). Updated 2026-07-02 15:45 UTC.
+**Current Status:** 114 Python files, 11,160 lines (excl. tests/). Updated 2026-07-02 16:23 UTC.
 
-**Auto-generated file stats:** 88 Python files, 8,953 lines (excl. tests/). Updated 2026-07-02 15:45 UTC.
+**Auto-generated file stats:** 114 Python files, 11,160 lines (excl. tests/). Updated 2026-07-02 16:23 UTC.
 
 - **incidents/**: 16 files, 2,590 lines
+- **verification/**: 26 files, 2,207 lines
 - **observability/**: 18 files, 1,980 lines
 - **collector/**: 10 files, 1,290 lines
 - **live_collector/**: 4 files, 689 lines
@@ -1089,6 +1090,7 @@ For bugs:
 | `live_collector` | `models`, `config` | `incidents`, `registry` |
 | `incidents` | `database` | `orchestrator`, `collector` |
 | `shared` | Nothing internal | Everything else |
+| `verification/*` | `models`, `database`, `shared` | `collector`, `orchestrator`, `finalizer`, `live_collector` (read-only via DB) |
 
 ## 14. Observability Layer (Phase 3)
 
@@ -1241,6 +1243,99 @@ Instruments the complete Telegram pipeline: Message Created → Formatting → E
 - **Incident enhancement:** `enhance_incident_package()` called from `package_generator.py` → writes `observability_context.json`
 - **System events:** Incident lifecycle events logged to `system_events` TimescaleDB hypertable via `shared/event_logger.py`
 - **No changes to existing business logic** — the observability module is entirely additive
+
+## Platform Verification Framework (Phase 3.5)
+
+The Verification Framework answers: **"Can I prove the platform is healthy?"** with evidence-backed reports.
+
+Unlike monitoring ("what's happening now") or testing ("does the code work"), verification produces measurable proof that the platform is functioning correctly in production.
+
+### Architecture
+```
+verification/
+├── __init__.py              # Public API (verify_platform, platform_doctor, etc.)
+├── models.py                # VerificationReport, HealthScore, DailyReport, Evidence
+├── api.py                   # REST API (verify_infrastructure→collection→pipeline→...)
+├── doctor.py                # Platform Doctor (runs all suites, prints summary)
+├── health_score.py          # Health Score engine (0–100 with factor weighting)
+├── framework/
+│   ├── base.py              # BaseVerifier (run(), add_evidence(), _build_report())
+│   └── evidence.py          # query_evidence(), sample_rows(), count_rows()
+├── validators/
+│   ├── infrastructure.py    # VM, Docker, PostgreSQL, TimescaleDB, disk/memory/CPU
+│   ├── discovery.py         # Flashscore + betting match counts, duplicates, tournaments
+│   ├── registry.py          # Coverage, player/betting mapping %, tracking status
+│   ├── collection.py        # Heartbeat, tick frequency, duplicates, score progression
+│   ├── database.py          # FK integrity, orphans, duplicates, connections, table stats
+│   ├── finalizer.py         # Completion integrity, validation flags, unfinalized matches
+│   ├── dataset.py           # Quality score 0–100 (missing data, odds, durations, metadata)
+│   ├── incident.py          # Counts, dedup, resolution rate, severity distribution
+│   ├── notification.py      # Telegram pipeline stage-by-stage (import → send → delivery)
+│   └── pipeline.py          # End-to-end: Flashscore→Parser→Registry→Collector→...→Telegram
+├── scheduler/
+│   └── scheduler.py         # Async timer: infra 1m, collection 5m, database 15m, doctor daily
+├── reports/
+│   ├── generator.py         # Daily report with health score, incidents, trends
+│   └── storage.py           # JSON archive with load_all(), load_latest(), history
+├── cli/
+│   └── main.py              # platform verify|doctor|report|health [suite]
+└── tests/
+    ├── conftest.py           # database module mock (sys.modules)
+    ├── test_framework.py     # BaseVerifier, evidence, models
+    ├── test_doctor.py        # PlatformDoctor, HealthScoreEngine
+    └── test_validators.py    # All validators + API + storage + daily report
+```
+
+### Key APIs
+| Function | Returns | Purpose |
+|----------|---------|---------|
+| `verify_platform()` | `list[VerificationReport]` | Run all 9 suites |
+| `verify_collection()` | `VerificationReport` | Live match data quality |
+| `verify_database()` | `VerificationReport` | FK, orphans, hypertable health |
+| `verify_pipeline()` | `VerificationReport` | End-to-end stages with first failure |
+| `verify_dataset()` | `VerificationReport` | Quality score 0–100 |
+| `platform_doctor()` | `dict` | CLI-friendly overview |
+| `get_latest_health_score()` | `HealthScore` | Weighted 0–100 score |
+| `generate_daily_report()` | `DailyReport` | Full daily summary |
+
+### Verification Report Structure
+Every verification produces:
+- `verification_id` — unique UUID
+- `verification_type` — which suite
+- `started_at / completed_at / duration` — timing
+- `status` — PASS / WARNING / FAIL
+- `summary` — human-readable result
+- `failures / warnings` — issues found
+- `metrics` — quantitative evidence
+- `recommendations` — suggested actions
+- `evidence` — key-value observations with descriptions
+
+### Scheduling
+| Suite | Frequency | Rationale |
+|-------|-----------|-----------|
+| Infrastructure | Every 1 min | System health critical |
+| Collection | Every 5 min | Live match data quality |
+| Database | Every 15 min | Structural integrity |
+| Platform Doctor + Health Score | Daily | Trend tracking |
+
+### Health Score Calculation
+Weighted scoring across 9 subsystems:
+- Collection (20%), Infrastructure (15%), Database (15%), Pipelines (15%)
+- Finalizer (10%), Registry (8%), Discovery (7%), Incidents (5%), Notifications (5%)
+- PASS = full weight, WARNING = half, FAIL = zero
+- Score stored in `reports/archive/score_history.jsonl` (last 30 entries)
+
+### CLI Commands
+```bash
+python -m verification.cli platform verify              # All suites
+python -m verification.cli platform verify collection   # Single suite
+python -m verification.cli platform doctor              # Overview
+python -m verification.cli platform report              # Daily report
+python -m verification.cli platform health              # Latest score
+```
+
+### Testing
+18 tests covering framework base, doctor, health score, all validators, API, and report storage. Mock `database` module via `sys.modules` to isolate from PostgreSQL.
 
 ## 15. Transformation Metrics
 
