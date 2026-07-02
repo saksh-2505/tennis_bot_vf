@@ -13,3 +13,4 @@ oraclessh.key
 *~
 
 .~lock*
+verification/reports/archive/*.jsonl
