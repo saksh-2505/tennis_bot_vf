@@ -63,8 +63,21 @@ class FinalizerVerifier(BaseVerifier):
         no_final_score = session.execute(text(
             "SELECT COUNT(*) FROM completed_matches WHERE final_set_score IS NULL"
         )).scalar() or 0
-        if no_final_score > 0:
-            failures.append(f"Completed matches missing final score: {no_final_score}")
+        no_score_no_final = session.execute(text(
+            "SELECT COUNT(*) FROM completed_matches "
+            "WHERE final_set_score IS NULL AND score_tick_count = 0"
+        )).scalar() or 0
+        has_ticks_no_final = no_final_score - no_score_no_final
+        self.add_evidence("no_final_score_with_ticks", has_ticks_no_final)
+        self.add_evidence("no_final_score_no_ticks", no_score_no_final)
+        if has_ticks_no_final > 0:
+            failures.append(
+                f"Completed matches with score ticks but no final score: {has_ticks_no_final}"
+            )
+        if no_score_no_final > 0:
+            warnings.append(
+                f"Completed matches missing final score (no tick data): {no_score_no_final}"
+            )
         metrics["no_final_score"] = no_final_score
 
         neg_duration = session.execute(text(
