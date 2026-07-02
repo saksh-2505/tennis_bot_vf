@@ -68,6 +68,16 @@ class CompletedMatch(Base):
         Float, nullable=True
     )
 
+    expected_score_states: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    unique_score_states: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    odds_at_score_pct: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+
     has_complete_score_data: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )

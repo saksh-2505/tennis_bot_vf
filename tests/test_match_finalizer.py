@@ -311,15 +311,19 @@ class TestValidation:
         assert cm.validation_passed is False
 
     def test_validation_passed_with_good_data(self, db_session):
-        tm = _make_tracked_match(db_session)
+        tm = _make_tracked_match(db_session, betting_market_id="mkt1")
+        # Simulate a real match: game transitions (0,0)→(1,0)→(1,1)→(2,1)
+        # Expected unique set states: 2+1+1 = 4
         base = datetime.now(timezone.utc)
-        for i in range(12):
-            ts = base + timedelta(seconds=i * 10)
+        states = [(0, 0), (1, 0), (1, 0), (1, 1), (2, 1)]
+        for i, (sa, sb) in enumerate(states):
+            ts = base + timedelta(seconds=i * 600)  # 10 min gaps
             h = hashlib.sha256(f"vs-{i}".encode()).hexdigest()
-            _insert_score_tick(db_session, tm.id, set_score_a=2, set_score_b=1, timestamp=ts, content_hash=h)
+            _insert_score_tick(db_session, tm.id, set_score_a=sa, set_score_b=sb, timestamp=ts, content_hash=h)
+        # Odds ticks distributed around score times (within 2s of each)
         base2 = datetime.now(timezone.utc)
         for i in range(60):
-            ts = base2 + timedelta(seconds=i * 2)
+            ts = base2 + timedelta(seconds=i * 600 / 12)  # spread over the match duration
             h = hashlib.sha256(f"vo-{i}".encode()).hexdigest()
             _insert_odds_tick(db_session, tm.id, timestamp=ts, content_hash=h)
 

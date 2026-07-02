@@ -75,8 +75,13 @@ def finalize_match(session, tracked_match_id: int) -> CompletedMatch:
             f"(CompletedMatch id={existing.id})"
         )
 
-    stats = calculate_stats(session, tracked_match_id)
     last_set_a, last_set_b = _get_last_set_scores(session, tracked_match_id)
+    final_set_score_str = (
+        f"{last_set_a}-{last_set_b}"
+        if last_set_a is not None and last_set_b is not None
+        else None
+    )
+    stats = calculate_stats(session, tracked_match_id, final_set_score=final_set_score_str)
     validation = validate(tm, stats, last_set_a=last_set_a, last_set_b=last_set_b)
     winner, final_set_score, total_sets = _determine_winner(
         tm, last_set_a, last_set_b
@@ -110,6 +115,9 @@ def finalize_match(session, tracked_match_id: int) -> CompletedMatch:
         duplicate_odds_ticks=stats.duplicate_odds_ticks,
         largest_score_gap_seconds=stats.largest_score_gap_seconds,
         largest_odds_gap_seconds=stats.largest_odds_gap_seconds,
+        expected_score_states=stats.expected_set_states,
+        unique_score_states=stats.unique_set_states,
+        odds_at_score_pct=stats.odds_at_score_pct,
         has_complete_score_data=validation.has_complete_score_data,
         has_complete_odds_data=validation.has_complete_odds_data,
         ready_for_replay=validation.ready_for_replay,

@@ -1,8 +1,13 @@
-"""Match validation: score/odds completeness, duration checks."""
+"""Match validation: score completeness (game states), odds-at-score matching, duration.
+
+Completeness is measured by comparing unique (set_score_a, set_score_b) pairs
+against the expected count derived from the final set score. This accounts for
+content-hash deduplication: we expect one tick per game-level score transition,
+not one per poll interval.
+"""
 import logging
 from dataclasses import dataclass
 
-from config import settings
 from finalizer.stats import MatchStats
 from models.tracked_match import TrackedMatch
 
@@ -19,13 +24,6 @@ class ValidationResult:
     ready_for_backtesting: bool = False
 
 
-def _has_80pct(actual: int, duration_seconds: int | None, interval: int) -> bool:
-    if duration_seconds is None or duration_seconds <= 0:
-        return actual > 0
-    expected = duration_seconds / interval
-    return actual >= 0.8 * expected
-
-
 def validate(
     tm: TrackedMatch,
     stats: MatchStats,
@@ -34,45 +32,57 @@ def validate(
 ) -> ValidationResult:
     result = ValidationResult()
 
-    duration = tm.match_duration_min or 0
+    # -- Score completeness: actual unique set states >= expected -----------------
+    if stats.expected_set_states > 0 and stats.unique_set_states >= stats.expected_set_states:
+        result.has_complete_score_data = True
+    elif stats.unique_set_states > 0:
+        logger.info(
+            "Match %d: score completeness %d/%d unique set states",
+            tm.id, stats.unique_set_states, stats.expected_set_states,
+        )
 
-    # completeness at 80% threshold
-    result.has_complete_score_data = _has_80pct(
-        stats.score_tick_count,
-        stats.score_collection_duration_seconds,
-        settings.LIVE_SCORE_INTERVAL_SECONDS,
-    )
-    result.has_complete_odds_data = _has_80pct(
-        stats.odds_tick_count,
-        stats.odds_collection_duration_seconds,
-        settings.LIVE_ODDS_INTERVAL_SECONDS,
-    )
+    # -- Odds-at-score: % of score changes with a nearby odds tick -----------------
+    if tm.betting_market_id:
+        result.has_complete_odds_data = stats.odds_at_score_pct >= 80.0
+        if not result.has_complete_odds_data and stats.odds_at_score_total > 0:
+            logger.info(
+                "Match %d: odds-at-score coverage %.1f%% (%d/%d)",
+                tm.id,
+                stats.odds_at_score_pct,
+                stats.odds_at_score_matched,
+                stats.odds_at_score_total,
+            )
+    else:
+        result.has_complete_odds_data = True
 
-    # derived readiness
+    # -- Readiness flags ----------------------------------------------------------
     result.ready_for_replay = (
         stats.score_tick_count > 0
         and stats.odds_tick_count > 0
-        and stats.largest_score_gap_seconds is not None
-        and stats.largest_score_gap_seconds < 60
-        and stats.largest_odds_gap_seconds is not None
-        and stats.largest_odds_gap_seconds < 30
     )
     result.ready_for_feature_extraction = stats.score_tick_count >= 10
     result.ready_for_backtesting = (
-        result.has_complete_score_data and result.has_complete_odds_data
+        result.has_complete_score_data
+        and result.has_complete_odds_data
     )
 
-    # overall validation — all critical checks must pass
+    # -- Overall validation: critical checks --------------------------------------
     critical = True
 
-    if stats.score_tick_count == 0:
-        logger.warning("Match %d: no score ticks", tm.id)
-        critical = False
-    if stats.odds_tick_count == 0:
-        logger.warning("Match %d: no odds ticks", tm.id)
+    if not result.has_complete_score_data:
+        logger.warning("Match %d: incomplete score data (%d/%d states)",
+                       tm.id, stats.unique_set_states, stats.expected_set_states)
+        if stats.expected_set_states > 0 and stats.unique_set_states > 0:
+            # Partial data: don't fail, just flag
+            pass
+        elif stats.unique_set_states == 0:
+            critical = False
+
+    duration = tm.match_duration_min or 0
     if duration <= 0:
         logger.warning("Match %d: invalid duration %d", tm.id, duration)
         critical = False
+
     if last_set_a is None or last_set_b is None:
         logger.warning("Match %d: no final set score available", tm.id)
         critical = False

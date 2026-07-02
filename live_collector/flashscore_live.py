@@ -185,7 +185,11 @@ def _parse_live_score(html: str) -> ScoreSnapshot:
 
 
 def mark_match_finished(tracked_match_id: int) -> None:
-    """Update tracked_matches with FINISHED status and calculate duration."""
+    """Update tracked_matches with FINISHED status and calculate duration.
+
+    Duration is computed as actual_finish - first_score_tick (precise start).
+    Falls back to scheduled_start only when no score ticks exist.
+    """
     import database as db
     from sqlalchemy import text
     from models.tracked_match import TrackedMatch
@@ -200,27 +204,32 @@ def mark_match_finished(tracked_match_id: int) -> None:
         tm.status = "FINISHED"
         tm.actual_finish = finish_utc
 
-        start = tm.scheduled_start
-        if start is not None and start.tzinfo is None:
-            start = start.replace(tzinfo=timezone.utc)
+        delta = None
 
-        delta = finish_utc - start if start else None
+        # Primary: use first score tick as actual match start
+        try:
+            row = session.execute(text(
+                "SELECT min(timestamp) FROM live_scores "
+                "WHERE tracked_match_id = :mid AND timestamp IS NOT NULL",
+                {"mid": tracked_match_id},
+            )).fetchone()
+            if row and row[0]:
+                first_tick = row[0]
+                if first_tick.tzinfo is None:
+                    first_tick = first_tick.replace(tzinfo=timezone.utc)
+                delta = finish_utc - first_tick
+        except Exception:
+            pass
 
-        # If scheduled_start is after actual_finish (match started early)
-        # or duration is unreasonably large (>8h), fall back to first score tick
-        if delta is None or delta.total_seconds() < 0 or delta.total_seconds() > 28800:
-            try:
-                row = session.execute(text(
-                    "SELECT min(timestamp) FROM live_scores "
-                    "WHERE tracked_match_id = :mid AND timestamp IS NOT NULL",
-                    {"mid": tracked_match_id},
-                )).fetchone()
-                if row and row[0]:
-                    delta = finish_utc - row[0]
-            except Exception:
-                pass
+        # Fallback: scheduled_start (only if no score ticks exist)
+        if delta is None or delta.total_seconds() < 0:
+            start = tm.scheduled_start
+            if start is not None and start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            if start is not None:
+                delta = finish_utc - start
 
-        if delta is not None and delta.total_seconds() > 0:
+        if delta is not None and delta.total_seconds() > 0 and delta.total_seconds() < 86400:
             tm.match_duration_min = int(delta.total_seconds() / 60)
 
         tm.updated_at = finish_utc

@@ -40,6 +40,20 @@ def check_connection() -> bool:
         return False
 
 
+def _run_migrations(conn):
+    """Add new columns to existing tables (idempotent via IF NOT EXISTS)."""
+    migrations = [
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS expected_score_states INTEGER",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS unique_score_states INTEGER",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS odds_at_score_pct DOUBLE PRECISION",
+    ]
+    for sql in migrations:
+        try:
+            conn.execute(text(sql))
+        except Exception as e:
+            logger.debug("Migration skipped: %s", e)
+
+
 def init_db() -> None:
     """Create all tables and configure TimescaleDB hypertables.
 
@@ -56,6 +70,7 @@ def init_db() -> None:
         m.metadata.create_all(bind=engine)
 
     with engine.connect() as conn:
+        _run_migrations(conn)
         conn.execute(text(
             "SELECT create_hypertable("
             "'live_scores', 'timestamp',"

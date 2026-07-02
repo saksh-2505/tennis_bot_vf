@@ -64,7 +64,7 @@ class DatasetVerifier(BaseVerifier):
         )
 
     def _check_data_completeness(self, session, failures, warnings, total) -> int:
-        schemes_needed = {
+        incompleteness_checks = {
             "final_set_score": "final_set_score IS NULL",
             "score_tick_count": "score_tick_count = 0",
             "scheduled_start": "scheduled_start IS NULL",
@@ -73,7 +73,7 @@ class DatasetVerifier(BaseVerifier):
             "surface": "surface IS NULL",
         }
         penalties = 0
-        for label, condition in schemes_needed.items():
+        for label, condition in incompleteness_checks.items():
             missing = session.execute(text(
                 f"SELECT COUNT(*) FROM completed_matches WHERE {condition}"
             )).scalar() or 0
@@ -85,6 +85,21 @@ class DatasetVerifier(BaseVerifier):
             elif pct > 5:
                 warnings.append(f"{missing}/{total} matches missing {label} ({pct}%)")
                 penalties += 5
+
+        game_state_complete = session.execute(text(
+            "SELECT COUNT(*) FROM completed_matches "
+            "WHERE expected_score_states IS NOT NULL AND expected_score_states > 0 "
+            "AND unique_score_states IS NOT NULL "
+            "AND unique_score_states >= expected_score_states"
+        )).scalar() or 0
+        game_state_pct = round(game_state_complete / total * 100, 1) if total else 0
+        self.add_evidence("game_state_completeness_pct", game_state_pct)
+        if game_state_pct < 50:
+            failures.append(f"Only {game_state_complete}/{total} matches have complete game state data ({game_state_pct}%)")
+            penalties += 20
+        elif game_state_pct < 80:
+            warnings.append(f"Game state completeness at {game_state_pct}%")
+            penalties += 5
         return penalties
 
     def _check_odds_completeness(self, session, failures, warnings, total) -> int:

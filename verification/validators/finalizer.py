@@ -60,25 +60,22 @@ class FinalizerVerifier(BaseVerifier):
         )).scalar() or 0
         metrics["no_odds_completed"] = no_odds
 
-        no_final_score = session.execute(text(
-            "SELECT COUNT(*) FROM completed_matches WHERE final_set_score IS NULL"
-        )).scalar() or 0
-        no_score_no_final = session.execute(text(
+        complete_score = session.execute(text(
             "SELECT COUNT(*) FROM completed_matches "
-            "WHERE final_set_score IS NULL AND score_tick_count = 0"
+            "WHERE expected_score_states IS NOT NULL AND expected_score_states > 0 "
+            "AND unique_score_states IS NOT NULL "
+            "AND unique_score_states >= expected_score_states"
         )).scalar() or 0
-        has_ticks_no_final = no_final_score - no_score_no_final
-        self.add_evidence("no_final_score_with_ticks", has_ticks_no_final)
-        self.add_evidence("no_final_score_no_ticks", no_score_no_final)
-        if has_ticks_no_final > 0:
-            failures.append(
-                f"Completed matches with score ticks but no final score: {has_ticks_no_final}"
-            )
-        if no_score_no_final > 0:
-            warnings.append(
-                f"Completed matches missing final score (no tick data): {no_score_no_final}"
-            )
-        metrics["no_final_score"] = no_final_score
+        score_complete_pct = round(complete_score / total * 100, 1) if total else 0
+        self.add_evidence("has_complete_score_data_count", complete_score)
+        metrics["score_complete_pct"] = score_complete_pct
+
+        odds_at_score = session.execute(text(
+            "SELECT AVG(odds_at_score_pct) FROM completed_matches "
+            "WHERE odds_at_score_pct IS NOT NULL"
+        )).scalar()
+        self.add_evidence("avg_odds_at_score_pct", round(odds_at_score or 0, 1))
+        metrics["avg_odds_at_score_pct"] = round(odds_at_score or 0, 1)
 
         neg_duration = session.execute(text(
             "SELECT COUNT(*) FROM completed_matches "
