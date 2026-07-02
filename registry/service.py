@@ -18,7 +18,8 @@ def _find_player(session, name: str):
 
     Flashscore names are "FIRST LAST" (e.g. "SVAJDA Z"), while the
     players table stores "LAST FIRST" (e.g. "SVAJDA ZIZOU").  Try
-    exact match, reversed order, and last-name partial match.
+    exact match, reversed order, last-name partial, and handle
+    abbreviated names where first name is just an initial.
     """
     from models.player import Player
 
@@ -33,12 +34,19 @@ def _find_player(session, name: str):
         if p:
             return p
 
-        last = parts[-1]
-        if len(last) >= 3:
+        # Determine last name — if the final word is short (initials),
+        # use all preceding words as the last name
+        if len(parts[-1]) <= 2:
+            last_name = " ".join(parts[:-1])
+        else:
+            last_name = parts[-1]
+
+        if len(last_name) >= 3:
             p = session.query(Player).filter(
                 or_(
-                    Player.full_name.ilike(f"{last} %"),
-                    Player.full_name.ilike(f"% {last}"),
+                    Player.full_name.ilike(f"{last_name} %"),
+                    Player.full_name.ilike(f"% {last_name}"),
+                    Player.full_name.ilike(f"%{last_name}%"),
                 )
             ).first()
             if p:
