@@ -6,11 +6,11 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** 88 Python files, 8,946 lines (excl. tests/). Updated 2026-07-02 15:27 UTC.
+**Current Status:** 88 Python files, 8,945 lines (excl. tests/). Updated 2026-07-02 15:28 UTC.
 
-**Auto-generated file stats:** 88 Python files, 8,946 lines (excl. tests/). Updated 2026-07-02 15:27 UTC.
+**Auto-generated file stats:** 88 Python files, 8,945 lines (excl. tests/). Updated 2026-07-02 15:28 UTC.
 
-- **incidents/**: 16 files, 2,591 lines
+- **incidents/**: 16 files, 2,590 lines
 - **observability/**: 18 files, 1,980 lines
 - **collector/**: 10 files, 1,290 lines
 - **live_collector/**: 4 files, 689 lines

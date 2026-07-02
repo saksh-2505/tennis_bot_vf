@@ -100,11 +100,10 @@ def _retry_live_match(session: Session, incident: Incident) -> bool:
         return False
 
     try:
-        row = session.execute(text(
-            "SELECT flashscore_match_id, betting_market_id FROM tracked_matches "
-            "WHERE id = :mid",
+        row = session.execute(
+            text("SELECT flashscore_match_id, betting_market_id FROM tracked_matches WHERE id = :mid"),
             {"mid": match_id},
-        )).fetchone()
+        ).fetchone()
         if not row:
             logger.warning("INC_%d recovery: match %d not found", incident.incident_id, match_id)
             return False
