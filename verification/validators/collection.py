@@ -66,7 +66,7 @@ class CollectionVerifier(BaseVerifier):
             "WHERE tm.status = 'LIVE' "
             "GROUP BY tm.id, tm.player1_name, tm.player2_name "
             "HAVING MAX(ls.timestamp) IS NULL "
-            "   OR MAX(ls.timestamp) < NOW() - INTERVAL :stale || ' seconds'"
+            "   OR MAX(ls.timestamp) < NOW() - make_interval(secs => :stale)"
         ), {"stale": stale_threshold_seconds}).fetchall()
         stale_ids = [f"#{r[0]} ({r[1]} vs {r[2]})" for r in stale_scores]
         self.add_evidence("stale_score_count", len(stale_scores))

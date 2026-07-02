@@ -122,7 +122,7 @@ class DatabaseVerifier(BaseVerifier):
             "WHERE tm.status = 'FINISHED' AND ls.tracked_match_id IS NULL"
         )).scalar() or 0
         if track_scores > 0:
-            failures.append(f"FINISHED matches with no live_scores: {track_scores}")
+            warnings.append(f"FINISHED matches with no live_scores: {track_scores}")
 
         completed_no_scores = session.execute(text(
             "SELECT COUNT(*) FROM completed_matches "

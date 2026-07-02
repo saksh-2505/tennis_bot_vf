@@ -78,7 +78,7 @@ class InfrastructureVerifier(BaseVerifier):
                 for u in unhealthy:
                     failures.append(f"Docker unhealthy container: {u.split(chr(9))[0]}")
         except FileNotFoundError:
-            failures.append("Docker: command not found")
+            warnings.append("Docker: command not found (not running on host)")
         except Exception as e:
             warnings.append(f"Docker: check failed ({e})")
 
