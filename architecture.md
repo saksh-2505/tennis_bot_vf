@@ -6,9 +6,9 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** 88 Python files, 8,953 lines (excl. tests/). Updated 2026-07-02 15:31 UTC.
+**Current Status:** 88 Python files, 8,953 lines (excl. tests/). Updated 2026-07-02 15:45 UTC.
 
-**Auto-generated file stats:** 88 Python files, 8,953 lines (excl. tests/). Updated 2026-07-02 15:31 UTC.
+**Auto-generated file stats:** 88 Python files, 8,953 lines (excl. tests/). Updated 2026-07-02 15:45 UTC.
 
 - **incidents/**: 16 files, 2,590 lines
 - **observability/**: 18 files, 1,980 lines
@@ -28,6 +28,20 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 - **replay/**: 1 files, 5 lines
 - **research/**: 1 files, 5 lines
 - **storage/**: 1 files, 5 lines
+---
+
+## Recent Fixes (2026-07-02)
+
+| Fix | Module | Impact |
+|-----|--------|--------|
+| Multi-format player name resolution | `registry/service.py` | `_find_player()` tries exact, reversed, last-name partial, and handles abbreviated names. Player ID coverage: **1 → 381/409 (93%)** |
+| Match duration calculation | `live_collector/flashscore_live.py` | Falls back to first score tick when `scheduled_start` is after `actual_finish` or >8h |
+| Lazy betting market matching | `live_collector/service.py` | Every 60s, re-attempts fuzzy name matching for LIVE matches without a betting market |
+| SQLAlchemy text() fix | `incidents/recovery.py` | Params passed to `execute()` instead of `text()` — eliminates runtime errors |
+| Monitor healthcheck | `Dockerfile.monitor` | Added `procps` package so `pgrep` works; all 3 containers now report healthy |
+| Observability wiring | `main.py`, `run_monitor.py` | `initialize_observability()` + JSON structured logging active |
+| Telegram consolidation | `shared/notify.py` | All 4 Telegram callers (notifier, finalizer, bot helpers, external monitor) delegate to single client |
+
 ---
 
 ## 2. System Architecture
@@ -252,7 +266,7 @@ flashscorefoundmatches          bettingsitefoundmatches
 ```
 
 **Matching rules:**
-- Player names are already normalized (uppercase) — exact match only, no fuzzy matching
+- Player names are normalized (uppercase) — multi-format resolution via `_find_player()` (see below)
 - Both `(fs.a, fs.b) == (bt.a, bt.b)` and `(fs.a, fs.b) == (bt.b, bt.a)` orderings are checked
 - If multiple betting markets match → log error, skip match
 - If no betting market matches → log warning, skip match
@@ -373,7 +387,7 @@ tracked_match (status=FINISHED)
 ### `main.py`
 | Function | Description |
 |----------|-------------|
-| `main()` | Setup logging, check DB, call `init_db()` then `run_platform()` |
+| `main()` | Initialize observability, setup JSON structured logging, check DB, init DB, run platform |
 
 ### `orchestrator/service.py`
 | Function | Description |
@@ -388,7 +402,7 @@ tracked_match (status=FINISHED)
 | Function | Description |
 |----------|-------------|
 | `poll_flashscore_score()` | Fetch match page, parse live score state → `ScoreSnapshot` |
-| `mark_match_finished(id)` | Set `tracked_matches.status=FINISHED`, calculate `match_duration_min` |
+| `mark_match_finished(id)` | Set `tracked_matches.status=FINISHED`, calculate `match_duration_min`. Uses `scheduled_start` by default; falls back to `min(live_scores.timestamp)` if scheduled_start is in the future or >8h before finish. |
 | `ScoreSnapshot` | Dataclass: set/game scores, point, server, tiebreak, finished, content_hash |
 
 ### `live_collector/betting_live.py`
@@ -401,6 +415,8 @@ tracked_match (status=FINISHED)
 | Function | Description |
 |----------|-------------|
 | `run_live_collection_loop()` | Background daemon: LIVE matches → asyncio.gather per match → batch INSERT |
+| `_get_live_matches()` | Fetch LIVE + upcoming matches; pre-fetch URLs; run lazy betting market matching |
+| `_try_lazy_betting_match(session, matches)` | Every 60s, attempt to find betting markets for LIVE matches without one (fuzzy last-name match against bettingsitefoundmatches) |
 
 ### `finalizer/service.py`
 | Function | Description |
@@ -419,7 +435,8 @@ tracked_match (status=FINISHED)
 | `validate(tm, stats, last_set_a, last_set_b)` | Check 80% completeness, winner, duration, set scores → `ValidationResult` with readiness flags |
 | Function | Description |
 |----------|-------------|
-| `build_match_registry()` | Join flashscorefoundmatches ↔ bettingsitefoundmatches by player names, resolve player IDs, upsert tracked_matches, return list[TrackedMatch] |
+| `build_match_registry()` | Join flashscorefoundmatches ↔ bettingsitefoundmatches by player names, resolve player IDs via `_find_player()`, upsert tracked_matches, return list[TrackedMatch] |
+| `_find_player(session, name)` | Multi-format player lookup: exact match → reversed (LAST FIRST) → last-name partial. Handles abbreviated names (initials) by skipping short final tokens. |
 
 ### `monitor/tennis_bot_monitor.py`
 | Function | Description |
@@ -487,8 +504,10 @@ tracked_match (status=FINISHED)
 ### `incidents/recovery.py`
 | Function | Description |
 |----------|-------------|
-| `attempt_recovery(session, incident)` | Safe recovery: DB retry, collector retry on next cycle |
+| `attempt_recovery(session, incident)` | Safe recovery: DB retry, collector retry, live match forced poll |
 | `_retry_db_connection(incident)` | `SELECT 1` via SQLAlchemy engine |
+| `_retry_collector(session, incident)` | Probe live Flashscore endpoint for stalled collectors |
+| `_retry_live_match(session, incident)` | Forced Flashscore poll + odds poll for stale matches |
 
 ### `incidents/telegram_bot.py`
 | Function | Description |
@@ -999,7 +1018,8 @@ sports-trading/
 │
 ├── shared/                     # Reusable utilities
 │   ├── httpx_client.py         # Centralized HTTP client
-│   └── notify.py               # Centralized Telegram sender
+│   ├── notify.py               # Centralized Telegram sender (all callers consolidated)
+│   └── event_logger.py         # Structured event logger → system_events hypertable
 │
 ├── collector/                  # Data collectors
 │   ├── flashscore/
@@ -1216,11 +1236,11 @@ Instruments the complete Telegram pipeline: Message Created → Formatting → E
 
 ### Integration Points
 
+- **Entry points wired:** `main.py` and `run_monitor.py` both call `initialize_observability()` + `setup_structured_logging()` at startup
+- **JSON structured logging:** Active by default (`OBSERVABILITY_LOG_FORMAT=json`), falls back to plain text
+- **Incident enhancement:** `enhance_incident_package()` called from `package_generator.py` → writes `observability_context.json`
+- **System events:** Incident lifecycle events logged to `system_events` TimescaleDB hypertable via `shared/event_logger.py`
 - **No changes to existing business logic** — the observability module is entirely additive
-- Database imports use lazy `from database import SessionLocal` inside functions to avoid import-order issues
-- Health checks query existing tables without modifying them
-- Pipeline validators use existing table structures and time columns
-- Incident integration writes additional diagnostic context without modifying incident package logic
 
 ## 15. Transformation Metrics
 
@@ -1231,11 +1251,13 @@ Instruments the complete Telegram pipeline: Message Created → Formatting → E
 - System events logged to `system_events` hypertable for incident lifecycle, errors, and health changes
 
 | Metric | Before | After |
-|--------|-------|-------|
+|--------|--------|-------|
 | Largest file | 1,211 lines (telegram_bot.py) | ~200 lines (each handler) |
 | Files with module docs | 3 / 47 | 47 / 47 |
-| Telegram implementations | 3 (different signatures) | 1 (shared/notify.py) |
+| Telegram implementations | 4 (different signatures) | 1 (shared/notify.py) |
 | Hardcoded credentials | 3 tokens in source | 0 (all env vars) |
+| Observability integration | 0% (orphaned) | 100% (wired, JSON logging active) |
+| Player name matching | exact-only (0.2%) | multi-format (93% coverage) |
 | Documentation files | 1 (architecture.md) | 5 + 10 ADRs |
 | AI config files | 0 | 3 (.ai/) |
 | Automation scripts | 0 | 5 (scripts/) |
