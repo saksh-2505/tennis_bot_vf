@@ -16,8 +16,11 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.request import Request, urlopen
-from urllib.error import URLError
+
+# Ensure project root is on sys.path for shared.notify imports
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
@@ -43,20 +46,9 @@ def log(msg: str) -> None:
 
 
 def send_telegram(text: str) -> bool:
-    import urllib.parse
+    from shared.notify import send_telegram as _send
 
-    data = urllib.parse.urlencode({"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}).encode()
-    req = Request(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        data=data,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-    try:
-        resp = urlopen(req, timeout=15)
-        return resp.status == 200
-    except URLError as e:
-        log(f"Telegram send failed: {e}")
-        return False
+    return _send(text, parse_mode="HTML")
 
 
 def update_duckdns() -> None:

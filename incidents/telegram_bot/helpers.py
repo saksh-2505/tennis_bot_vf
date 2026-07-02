@@ -3,9 +3,7 @@
 import html
 import logging
 
-import httpx
-
-from incidents.telegram_bot.offset_store import OFFSET_FILE
+from shared.notify import send_telegram
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +34,6 @@ def send_reply(chat_id: int, text: str) -> None:
         return
     if len(text) > _MAX_REPLY_LENGTH:
         text = text[:_MAX_REPLY_LENGTH] + "\n\n\u2026 (truncated)"
-    resp = httpx.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
-        timeout=15,
-    )
-    data = resp.json()
-    if not data.get("ok"):
-        err_desc = data.get("description", "unknown error")
-        logger.error("Telegram API error (HTTP %d): %s", resp.status_code, err_desc)
-        raise RuntimeError(f"Telegram API error: {err_desc}")
+    ok = send_telegram(text, parse_mode="HTML", chat_id=str(chat_id))
+    if not ok:
+        raise RuntimeError("Telegram API error: send failed")

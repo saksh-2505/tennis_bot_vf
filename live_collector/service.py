@@ -24,6 +24,10 @@ _collection_active: bool = False
 # a running-but-silent collector.
 _last_tick_ts: float = 0.0
 
+# Lazy betting matching: throttle to once per 60s
+_last_betting_match_ts: float = 0.0
+_BETTING_MATCH_INTERVAL = 60.0
+
 
 def get_heartbeat() -> float:
     return _last_tick_ts
@@ -99,6 +103,10 @@ def _get_live_matches() -> list[dict]:
             )
             .all()
         )
+
+        # Lazy betting market matching for matches without odds
+        _try_lazy_betting_match(session, result)
+
         return [
             {
                 "id": m.id,
@@ -107,6 +115,53 @@ def _get_live_matches() -> list[dict]:
             }
             for m in result
         ]
+
+
+def _try_lazy_betting_match(session, live_matches: list) -> None:
+    """Periodically try to find betting markets for LIVE matches that have none.
+
+    The betting site may add events for matches after the discovery cycle
+    (which runs every 12h).  This lazy matcher runs every 60s.
+    """
+    global _last_betting_match_ts
+
+    now = time.monotonic()
+    if now - _last_betting_match_ts < _BETTING_MATCH_INTERVAL:
+        return
+    _last_betting_match_ts = now
+
+    from models.bettingsite import BettingsiteFoundMatch
+    from collector.betting_site.parser import _extract_last_name, _names_match
+
+    used_ids = {m.betting_market_id for m in live_matches if m.betting_market_id}
+    orphan_bt = session.query(BettingsiteFoundMatch).all()
+    if not orphan_bt:
+        return
+
+    matched = False
+    for tm in live_matches:
+        if tm.betting_market_id:
+            continue
+
+        last_a = _extract_last_name(tm.player1_name or "")
+        last_b = _extract_last_name(tm.player2_name or "")
+
+        for bt in orphan_bt:
+            if bt.market_id in used_ids:
+                continue
+            event_name = f"{bt.player_a} v {bt.player_b}".lower()
+            if _names_match(event_name, last_a, last_b) or _names_match(event_name, last_b, last_a):
+                tm.betting_market_id = bt.market_id
+                used_ids.add(bt.market_id)
+                matched = True
+                logger.info(
+                    "Lazy betting match: %s vs %s -> market %s",
+                    tm.player1_name, tm.player2_name, bt.market_id,
+                )
+                break
+
+    if matched:
+        session.commit()
 
 
 async def _collect_tick(matches: list[dict]) -> None:

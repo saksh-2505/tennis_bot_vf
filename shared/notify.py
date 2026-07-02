@@ -21,7 +21,7 @@ _enabled = bool(BOT_TOKEN) and bool(CHAT_ID)
 
 def send_telegram(
     text: str,
-    parse_mode: str = "Markdown",
+    parse_mode: str = "HTML",
     chat_id: str | None = None,
 ) -> bool:
     if not _enabled:

@@ -33,6 +33,13 @@ def generate_incident_package(session: Session, incident: Incident) -> str:
     _collect_architecture(package_dir)
     _collect_source(package_dir, incident)
 
+    try:
+        from observability.incident_integration import enhance_incident_package as _enhance
+
+        _enhance(str(package_dir), incident_id=incident.incident_id, tracked_match_id=incident.tracked_match_id)
+    except Exception:
+        logger.debug("Observability context not available — skipping enhancement")
+
     logger.info("Incident package generated: %s", package_dir)
     return str(package_dir)
 
@@ -61,6 +68,21 @@ def _collect_logs(package_dir: Path, incident: Incident) -> None:
     logs_dir = package_dir / "logs"
     logs_dir.mkdir(exist_ok=True)
 
+    # Method 1: shared log volume (inside container)
+    shared_log_paths = [
+        "/app/logs/app.log",
+        "/app/logs/monitor.log",
+    ]
+    for path in shared_log_paths:
+        try:
+            content = Path(path).read_text()
+            truncated = "\n".join(content.split("\n")[-500:])
+            label = Path(path).stem
+            (logs_dir / f"{label}_shared.log").write_text(truncated)
+        except OSError:
+            pass
+
+    # Method 2: docker compose logs (host or Docker socket)
     try:
         compose_dir = os.path.expanduser("~/tennis_bot")
         if not os.path.isdir(compose_dir):
@@ -72,12 +94,10 @@ def _collect_logs(package_dir: Path, incident: Incident) -> None:
         )
         if result.stdout.strip():
             (logs_dir / "app_recent.log").write_text(result.stdout)
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
-        (logs_dir / "_collection_note.txt").write_text(
-            f"Could not collect app logs: {e}\n"
-            "Running inside container without Docker socket access.\n"
-        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
 
+    # Method 3: local temp log files (external monitor)
     log_paths = _find_log_files(incident.module)
     for label, path in log_paths:
         try:

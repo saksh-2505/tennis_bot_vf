@@ -187,6 +187,7 @@ def _parse_live_score(html: str) -> ScoreSnapshot:
 def mark_match_finished(tracked_match_id: int) -> None:
     """Update tracked_matches with FINISHED status and calculate duration."""
     import database as db
+    from sqlalchemy import text
     from models.tracked_match import TrackedMatch
 
     finish_utc = datetime.now(timezone.utc)
@@ -198,12 +199,30 @@ def mark_match_finished(tracked_match_id: int) -> None:
 
         tm.status = "FINISHED"
         tm.actual_finish = finish_utc
-        if tm.scheduled_start is not None:
-            sched = tm.scheduled_start
-            if sched.tzinfo is None:
-                sched = sched.replace(tzinfo=timezone.utc)
-            delta = finish_utc - sched
+
+        start = tm.scheduled_start
+        if start is not None and start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+
+        delta = finish_utc - start if start else None
+
+        # If scheduled_start is after actual_finish (match started early)
+        # or duration is unreasonably large (>8h), fall back to first score tick
+        if delta is None or delta.total_seconds() < 0 or delta.total_seconds() > 28800:
+            try:
+                row = session.execute(text(
+                    "SELECT min(timestamp) FROM live_scores "
+                    "WHERE tracked_match_id = :mid AND timestamp IS NOT NULL",
+                    {"mid": tracked_match_id},
+                )).fetchone()
+                if row and row[0]:
+                    delta = finish_utc - row[0]
+            except Exception:
+                pass
+
+        if delta is not None and delta.total_seconds() > 0:
             tm.match_duration_min = int(delta.total_seconds() / 60)
+
         tm.updated_at = finish_utc
         session.commit()
 

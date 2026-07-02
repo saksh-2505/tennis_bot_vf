@@ -33,7 +33,15 @@ services:
       LIVE_PREFETCH_MINUTES: "5"
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
       TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID}"
+    volumes:
+      - shared_logs:/app/logs
     restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c", "from database import check_connection; exit(0) if check_connection() else exit(1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   monitor:
     build:
@@ -61,8 +69,16 @@ services:
       TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID}"
     volumes:
       - incident_packages:/app/incident_packages
+      - shared_logs:/app/logs
     restart: always
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "run_monitor.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 volumes:
   pgdata:
   incident_packages:
+  shared_logs:

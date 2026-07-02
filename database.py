@@ -48,9 +48,10 @@ def init_db() -> None:
     from models.completed_match import CompletedMatch
     from models.live_odds import LiveOdds
     from models.live_score import LiveScore
+    from models.system_event import SystemEvent
     from models.tracked_match import TrackedMatch
 
-    models = [CompletedMatch, LiveScore, LiveOdds, TrackedMatch]
+    models = [CompletedMatch, LiveScore, LiveOdds, SystemEvent, TrackedMatch]
     for m in models:
         m.metadata.create_all(bind=engine)
 
@@ -70,6 +71,13 @@ def init_db() -> None:
             ")"
         ))
         conn.execute(text(
+            "SELECT create_hypertable("
+            "'system_events', 'timestamp',"
+            " chunk_time_interval => INTERVAL '1 day',"
+            " if_not_exists => TRUE"
+            ")"
+        ))
+        conn.execute(text(
             "ALTER TABLE live_scores SET ("
             "  timescaledb.compress,"
             "  timescaledb.compress_segmentby = 'tracked_match_id'"
@@ -81,9 +89,14 @@ def init_db() -> None:
             "  timescaledb.compress_segmentby = 'tracked_match_id'"
             ")"
         ))
+        conn.execute(text(
+            "ALTER TABLE system_events SET ("
+            "  timescaledb.compress"
+            ")"
+        ))
         conn.commit()
 
-        for tbl in ("live_scores", "live_odds"):
+        for tbl in ("live_scores", "live_odds", "system_events"):
             try:
                 conn.execute(text(
                     f"SELECT add_compression_policy("

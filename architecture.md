@@ -6,28 +6,28 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** 86 Python files, 8,677 lines (excl. tests/). Updated 2026-06-29 11:33 UTC.
+**Current Status:** 88 Python files, 8,946 lines (excl. tests/). Updated 2026-07-02 15:27 UTC.
 
-**Auto-generated file stats:** 86 Python files, 8,677 lines (excl. tests/). Updated 2026-06-29 11:33 UTC.
+**Auto-generated file stats:** 88 Python files, 8,946 lines (excl. tests/). Updated 2026-07-02 15:27 UTC.
 
-- **incidents/**: 16 files, 2,564 lines
+- **incidents/**: 16 files, 2,591 lines
 - **observability/**: 18 files, 1,980 lines
 - **collector/**: 10 files, 1,290 lines
-- **live_collector/**: 4 files, 615 lines
-- **finalizer/**: 5 files, 411 lines
-- **models/**: 8 files, 354 lines
+- **live_collector/**: 4 files, 689 lines
+- **finalizer/**: 5 files, 392 lines
+- **models/**: 9 files, 389 lines
 - **orchestrator/**: 2 files, 335 lines
 - **scripts/**: 6 files, 333 lines
-- **monitor/**: 1 files, 299 lines
-- **root/**: 6 files, 281 lines
-- **registry/**: 2 files, 130 lines
-- **shared/**: 2 files, 79 lines
-- **backtest/**: 1 files, 1 lines
-- **dashboard/**: 1 files, 1 lines
-- **execution/**: 1 files, 1 lines
-- **replay/**: 1 files, 1 lines
-- **research/**: 1 files, 1 lines
-- **storage/**: 1 files, 1 lines
+- **root/**: 6 files, 308 lines
+- **monitor/**: 1 files, 291 lines
+- **registry/**: 2 files, 166 lines
+- **shared/**: 3 files, 152 lines
+- **backtest/**: 1 files, 5 lines
+- **dashboard/**: 1 files, 5 lines
+- **execution/**: 1 files, 5 lines
+- **replay/**: 1 files, 5 lines
+- **research/**: 1 files, 5 lines
+- **storage/**: 1 files, 5 lines
 ---
 
 ## 2. System Architecture
@@ -674,6 +674,21 @@ Called once per monitor tick (60s) from `_run_tick()`.
 | lay_odds_a/b | Float | nullable |
 | volume_a/b | Float | nullable |
 
+### `system_events` (hypertable)
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| timestamp | TIMESTAMPTZ | PK (composite), partition key |
+| event_id | String(32) | PK (composite), auto-generated |
+| level | String(16) | INFO, WARNING, ERROR, CRITICAL |
+| source | String(64) | Module/service that generated the event |
+| message | Text | Event description |
+| details | Text | nullable — JSON blob with structured context |
+| incident_id | Integer | nullable — FK to incidents |
+| tracked_match_id | Integer | nullable — FK to tracked_matches |
+
+Hypertable with 1-day chunk interval, compression enabled (7-day policy).
+
 ### `completed_matches`
 | Column | Type | Constraints |
 |--------|------|-------------|
@@ -848,8 +863,18 @@ Oracle VM (Ubuntu 22.04, x86_64)
 ├── Logrotate (30-day retention, 100 MB max per file)
 │   └── /home/ubuntu/tennis_bot/logs/*.log
 │
-├── Docker restart policy (restart: always on both services)
+├── Docker restart policy (restart: always on all services)
 │   └── Systemd tennis-bot.service defined but inactive
+│
+├── Healthchecks
+│   ├── timescaledb: pg_isready (10s interval)
+│   ├── app: DB connectivity check (30s interval)
+│   └── monitor: process check via pgrep (30s interval)
+│
+├── Shared volumes
+│   ├── pgdata: persistent TimescaleDB data
+│   ├── incident_packages: diagnostic packages from monitor
+│   └── shared_logs: mounted at /app/logs on app + monitor for log access
 │
 └── DuckDNS: tennisbotdata.duckdns.org → 161.118.182.103
 ```
@@ -868,10 +893,10 @@ Oracle VM (Ubuntu 22.04, x86_64)
 |----------|--------|---------|
 | `DATABASE_URL` | docker-compose.yml | Points to `timescaledb:5432` |
 | `DB_PASSWORD` | `.env` file | Superuser password for PostgreSQL |
-| `TELEGRAM_BOT_TOKEN` | `.env` file (docker-compose) / hardcoded (monitor.py) | Bot token for health alerts |
-| `TELEGRAM_CHAT_ID` | `.env` file (docker-compose) / hardcoded (monitor.py) | Destination chat for alerts |
+| `TELEGRAM_BOT_TOKEN` | `.env` file (all services) | Bot token for health alerts |
+| `TELEGRAM_CHAT_ID` | `.env` file (all services) | Destination chat for alerts |
 
-> **Note:** `monitor/tennis_bot_monitor.py` and `health_check.sh` have TELEGRAM_BOT_TOKEN and CHAT_ID **hardcoded**, not pulled from `.env`. The app container reads them from `.env` via docker-compose.
+> **Note:** All services read credentials from environment variables. No hardcoded tokens remain in any source file. All Telegram outbound calls are consolidated through `shared/notify.py`.
 
 ### `docker-compose.yml` structure
 ```
@@ -907,7 +932,15 @@ services:
       LIVE_PREFETCH_MINUTES: "5"
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
       TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID}"
+    volumes:
+      - shared_logs:/app/logs
     restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c", "from database import check_connection; exit(0) if check_connection() else exit(1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 ```
 
 ### `Dockerfile` structure
@@ -1191,8 +1224,14 @@ Instruments the complete Telegram pipeline: Message Created → Formatting → E
 
 ## 15. Transformation Metrics
 
+### Integration Status
+- `initialize_observability()` called from `main.py` and `run_monitor.py` at startup
+- Structured JSON logging active by default (`OBSERVABILITY_LOG_FORMAT=json`), falls back to plain text
+- `enhance_incident_package()` called during incident package generation → writes `observability_context.json`
+- System events logged to `system_events` hypertable for incident lifecycle, errors, and health changes
+
 | Metric | Before | After |
-|--------|--------|-------|
+|--------|-------|-------|
 | Largest file | 1,211 lines (telegram_bot.py) | ~200 lines (each handler) |
 | Files with module docs | 3 / 47 | 47 / 47 |
 | Telegram implementations | 3 (different signatures) | 1 (shared/notify.py) |

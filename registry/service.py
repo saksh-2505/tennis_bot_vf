@@ -2,6 +2,9 @@
 import logging
 from typing import TYPE_CHECKING
 
+from sqlalchemy import or_
+from sqlalchemy.orm import Session
+
 from database import engine
 
 if TYPE_CHECKING:
@@ -10,12 +13,45 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _find_player(session, name: str):
+    """Look up a player by name, trying multiple formats.
+
+    Flashscore names are "FIRST LAST" (e.g. "SVAJDA Z"), while the
+    players table stores "LAST FIRST" (e.g. "SVAJDA ZIZOU").  Try
+    exact match, reversed order, and last-name partial match.
+    """
+    from models.player import Player
+
+    p = session.query(Player).filter_by(full_name=name).first()
+    if p:
+        return p
+
+    parts = name.split()
+    if len(parts) >= 2:
+        last_first = " ".join(reversed(parts))
+        p = session.query(Player).filter_by(full_name=last_first).first()
+        if p:
+            return p
+
+        last = parts[-1]
+        if len(last) >= 3:
+            p = session.query(Player).filter(
+                or_(
+                    Player.full_name.ilike(f"{last} %"),
+                    Player.full_name.ilike(f"% {last}"),
+                )
+            ).first()
+            if p:
+                return p
+
+    return None
+
+
 def build_match_registry() -> list["TrackedMatch"]:
     import database as db
 
     from models.bettingsite import BettingsiteFoundMatch
     from models.flashscore import FlashscoreFoundMatch
-    from models.player import Player
     from models.tracked_match import TrackedMatch
 
     TrackedMatch.metadata.create_all(bind=engine)
@@ -41,8 +77,8 @@ def build_match_registry() -> list["TrackedMatch"]:
             candidates.extend(bt_by_players.get(key1, []))
             candidates.extend(bt_by_players.get(key2, []))
 
-            p1 = session.query(Player).filter_by(full_name=fs.player_a).first()
-            p2 = session.query(Player).filter_by(full_name=fs.player_b).first()
+            p1 = _find_player(session, fs.player_a)
+            p2 = _find_player(session, fs.player_b)
 
             betting_market_id: str | None = None
 

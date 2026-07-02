@@ -1,18 +1,12 @@
 """Telegram alert sending for CRITICAL incidents."""
 import logging
-import os
-
-import httpx
 
 from incidents.config import TELEGRAM_ENABLED
 from incidents.models import Incident
+from shared.event_logger import log_incident_event
+from shared.notify import send_telegram as _send_telegram
 
 logger = logging.getLogger(__name__)
-
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
-
-_enabled = TELEGRAM_ENABLED and bool(BOT_TOKEN and CHAT_ID)
 
 SEVERITY_ICONS = {
     "INFO": "\u2139\ufe0f",
@@ -45,27 +39,26 @@ def _format_incident_alert(incident: Incident) -> str:
 
 
 def send_notification(incident: Incident) -> bool:
-    if not _enabled:
+    if not TELEGRAM_ENABLED:
         logger.debug("Telegram disabled — skipping incident notification")
         return False
 
     try:
         text = _format_incident_alert(incident)
-        resp = httpx.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json={"chat_id": CHAT_ID, "text": text},
-            timeout=15,
-        )
-        ok = resp.is_success
+        ok = _send_telegram(text)
         if ok:
             logger.info("Telegram alert sent for INC_%d", incident.incident_id)
+            try:
+                log_incident_event(
+                    "notified",
+                    "incidents.notifier",
+                    incident.incident_id,
+                    incident.title,
+                )
+            except Exception:
+                pass
         else:
-            logger.warning(
-                "Telegram send failed (HTTP %d) for INC_%d: %s",
-                resp.status_code,
-                incident.incident_id,
-                resp.text[:200],
-            )
+            logger.warning("Telegram API rejected message for INC_%d", incident.incident_id)
         return ok
     except Exception as e:
         logger.warning("Telegram alert failed for INC_%d: %s", incident.incident_id, e)

@@ -29,14 +29,25 @@
 | No tests for Telegram bot handlers | Open | Medium |
 | Hardcoded credentials in `monitor/tennis_bot_monitor.py` | Fixed | High |
 
+## Recently Fixed (2026-07-01)
+
+| Issue | Fix |
+|-------|-----|
+| Observability layer disconnected | Wired `initialize_observability()` into both entry points; connected `enhance_incident_package()` into package generator; enabled JSON structured logging |
+| No log persistence for post-mortem | Created `system_events` hypertable for structured event logging (incidents, errors, health events) |
+| Incident packages missing Docker logs in containers | Added shared log volume `shared_logs` mounted at `/app/logs` on both containers |
+| 3 separate Telegram implementations | Consolidated all outbound Telegram calls through `shared/notify.py` |
+| No healthchecks on app/monitor containers | Added Docker healthchecks: DB connectivity check for app, process check for monitor |
+| 6 stub modules with minimal docstrings | Expanded docstrings explaining planned purpose and phase for backtest, dashboard, execution, replay, research, storage |
+| Documentation outdated on observability and credentials | Updated architecture.md to reflect wired-in observability, no hardcoded tokens, shared log volume |
+
 ## Technical Debt
 
 | Item | Impact | Target |
 |------|--------|--------|
 | No foreign key constraints in DB | Data integrity risk | Phase 5 |
-| Empty stub modules (backtest, replay, etc.) | Confusing structure | Phase 5 |
-| `incidents/telegram_bot.py` at 1,211 lines | High context cost per edit | Phase 2 |
-| 3 separate Telegram implementations | Fragmented error handling | Phase 2 |
+| Stub modules have limited implementation | Not usable yet | Phase 4+ |
+| `incidents/telegram_bot/` split across 7 files | Moderate context cost | Ongoing |
 | No `contributing.md` | Inconsistent new contributions | Phase 4 |
 
 ## Roadmap

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from incidents.models import Incident
+from shared.event_logger import log_incident_event
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,17 @@ def create_incident(
         category,
         title,
     )
+
+    try:
+        log_incident_event(
+            "created",
+            module,
+            incident.incident_id,
+            f"{severity} - {category}: {title}",
+        )
+    except Exception:
+        pass
+
     return incident
 
 
@@ -81,6 +93,17 @@ def resolve_incident(session: Session, incident_id: int) -> Incident | None:
     incident.resolved_at = datetime.now(timezone.utc)
     session.flush()
     logger.info("Incident INC_%d resolved", incident_id)
+
+    try:
+        log_incident_event(
+            "resolved",
+            incident.module,
+            incident_id,
+            incident.title,
+        )
+    except Exception:
+        pass
+
     return incident
 
 

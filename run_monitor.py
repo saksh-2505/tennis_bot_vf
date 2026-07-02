@@ -3,11 +3,17 @@ import logging
 import signal
 import sys
 
-from logger import setup_logging
+from observability import initialize_observability
+from observability.logging import setup_structured_logging
 
 
 def main() -> None:
-    setup_logging()
+    initialize_observability()
+    setup_structured_logging(
+        service_name="monitor",
+        module="run_monitor",
+        component="incident_manager",
+    )
     logger = logging.getLogger(__name__)
     logger.info("Starting Incident Monitor...")
 
