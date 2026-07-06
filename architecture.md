@@ -6,15 +6,15 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** 114 Python files, 11,349 lines (excl. tests/). Updated 2026-07-02 18:07 UTC.
+**Current Status:** 114 Python files, 11,318 lines (excl. tests/). Updated 2026-07-06 17:08 UTC.
 
-**Auto-generated file stats:** 114 Python files, 11,349 lines (excl. tests/). Updated 2026-07-02 18:07 UTC.
+**Auto-generated file stats:** 114 Python files, 11,318 lines (excl. tests/). Updated 2026-07-06 17:08 UTC.
 
 - **incidents/**: 16 files, 2,590 lines
 - **verification/**: 26 files, 2,232 lines
 - **observability/**: 18 files, 1,980 lines
 - **collector/**: 10 files, 1,290 lines
-- **live_collector/**: 4 files, 698 lines
+- **live_collector/**: 4 files, 667 lines
 - **finalizer/**: 5 files, 522 lines
 - **models/**: 9 files, 399 lines
 - **orchestrator/**: 2 files, 335 lines
@@ -31,10 +31,11 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 - **storage/**: 1 files, 5 lines
 ---
 
-## Recent Fixes (2026-07-02)
+## Recent Fixes (2026-07-06)
 
 | Fix | Module | Impact |
 |-----|--------|--------|
+| Odds capture: API headers fix + parser reuse | `live_collector/betting_live.py` | Odds API now sends proper Origin/Referer headers (matching discovery client). Pipe parsing reuses battle-tested `parse_odds_pipe` from collector instead of duplicate logic. |
 | Multi-format player name resolution | `registry/service.py` | `_find_player()` tries exact, reversed, last-name partial, and handles abbreviated names. Player ID coverage: **1 → 381/409 (93%)** |
 | Match duration calculation | `live_collector/flashscore_live.py` | Falls back to first score tick when `scheduled_start` is after `actual_finish` or >8h |
 | Lazy betting market matching | `live_collector/service.py` | Every 60s, re-attempts fuzzy name matching for LIVE matches without a betting market |
@@ -409,13 +410,16 @@ tracked_match (status=FINISHED)
 ### `live_collector/betting_live.py`
 | Function | Description |
 |----------|-------------|
-| `poll_betting_odds(market_id)` | POST odds endpoint, parse pipe string → `OddsSnapshot` |
-| `OddsSnapshot` | Dataclass: back/lay odds, volume; any_valid(), content_hash |
+| `poll_betting_odds(market_id)` | POST odds endpoint with Origin/Referer headers, parse pipe string via shared `parse_odds_pipe` from collector → `OddsSnapshot` |
+| `OddsSnapshot` | Dataclass: back/lay odds, volume; any_valid() (back odds only), content_hash |
+| `_parse_odds_response(body, market_id)` | JSON array → extract pipe → delegate to `_parse_odds_pipe_snapshot` |
+| `_parse_odds_pipe_snapshot(pipe, market_id)` | Reuses `collector.betting_site.parser.parse_odds_pipe` for robust pipe parsing |
 
 ### `live_collector/service.py`
 | Function | Description |
 |----------|-------------|
-| `run_live_collection_loop()` | Background daemon: LIVE matches → asyncio.gather per match → batch INSERT |
+| `run_live_collection_loop()` | Background daemon: LIVE matches → asyncio.gather per match → batch INSERT (scores every 10s, odds every 2s, hash-deduplicated) |
+| `_collect_tick(matches)` | Concurrent polling: scores (10s throttle) + odds (every tick), both only inserted on hash change |
 | `_get_live_matches()` | Fetch LIVE + upcoming matches; pre-fetch URLs; run lazy betting market matching |
 | `_try_lazy_betting_match(session, matches)` | Every 60s, attempt to find betting markets for LIVE matches without one (fuzzy last-name match against bettingsitefoundmatches) |
 

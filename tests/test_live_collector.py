@@ -70,7 +70,12 @@ class TestFlashscoreLive:
 
     @patch("live_collector.flashscore_live.httpx.Client")
     def test_poll_detects_finished_in_html(self, mock_client):
-        html = "<html><div class='detailScore'><div class='matchStatus'>FINISHED</div></div></html>"
+        html = (
+            "<html>"
+            "<div class='detail'><b>2-1</b>  (6-4,4-6,6-3)</div>"
+            "<div class='detail'>Finished</div>"
+            "</html>"
+        )
         mock_resp = mock_client.return_value.__enter__.return_value
         mock_resp.get.return_value.text = html
         mock_resp.get.return_value.raise_for_status = lambda: None
@@ -92,7 +97,8 @@ class TestBettingLive:
 
         assert OddsSnapshot().any_valid() is False
         assert OddsSnapshot(back_odds_a=1.5).any_valid() is True
-        assert OddsSnapshot(lay_odds_b=2.0).any_valid() is True
+        assert OddsSnapshot(back_odds_b=2.0).any_valid() is True
+        assert OddsSnapshot(lay_odds_b=2.0).any_valid() is False
 
     def test_odds_snapshot_content_hash(self):
         from live_collector.betting_live import OddsSnapshot

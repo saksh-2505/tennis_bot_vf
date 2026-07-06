@@ -11,19 +11,16 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 ODDS_URL = "https://odd.ocric99.com/ws/getMarketDataNew"
+SITE_URL = "https://reddybook.green"
 
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/125.0.0.0 Safari/537.36"
-    ),
+    "Origin": SITE_URL,
+    "Referer": f"{SITE_URL}/",
+    "Accept": "application/json",
     "Content-Type": "application/x-www-form-urlencoded",
 }
 
 TIMEOUT = 30.0
-
-STATUS_TOKENS = {"ACTIVE", "SUSPENDED", "REMOVED", "LOSER", "WINNER", "BALL_RUNNING", "OPEN"}
 
 
 @dataclass
@@ -90,74 +87,41 @@ def _parse_odds_response(body: str, market_id: str) -> OddsSnapshot:
         logger.debug("No data in odds response for market %s", market_id)
         return OddsSnapshot()
 
-    # The first element is the market-data pipe string
     market_pipe = data[0]
+    if market_pipe is None or (isinstance(market_pipe, str) and market_pipe.strip() in ("null", "None", "")):
+        logger.debug("Null market data for market %s (possibly closed)", market_id)
+        return OddsSnapshot()
+
     if not isinstance(market_pipe, str) or not market_pipe.strip():
         logger.debug("No market data pipe for market %s", market_id)
         return OddsSnapshot()
 
-    # Check for null response
-    # The API returns "null" or "[null]" for closed/unavailable markets
-    if market_pipe.strip() in ("null", "None", ""):
-        logger.debug("Null market data for market %s (possibly closed)", market_id)
-        return OddsSnapshot()
-
-    return _parse_odds_pipe(market_pipe, market_id)
+    return _parse_odds_pipe_snapshot(market_pipe, market_id)
 
 
-def _parse_odds_pipe(market_pipe: str, market_id: str) -> OddsSnapshot:
+def _parse_odds_pipe_snapshot(market_pipe: str, market_id: str) -> OddsSnapshot:
     """Parse a pipe-delimited market-data string into OddsSnapshot.
 
-    Pipe format (simplified):
-      market_id||OPEN|...|selection_id_a|ACTIVE|back_price_1|volume_1|back_price_2|volume_2|...|selection_id_b|ACTIVE|back_price_1|volume_1|...
-
-    Only the BEST (first) back price is used for each selection.
-    Lay odds and volumes are not available from this API and remain None.
-
-    Selection IDs are identified by being a 6+ digit token immediately
-    followed by a STATUS_TOKEN (ACTIVE, SUSPENDED, etc.).  This avoids
-    confusion with other large numeric IDs that appear earlier in the pipe
-    but are NOT followed by a status token.
+    Reuses the battle-tested ``parse_odds_pipe`` from the collector module
+    which handles the full pipe format including edge cases like SUSPENDED,
+    multiple status tokens, and float-valued tokens between selection IDs.
     """
+    from collector.betting_site.parser import parse_odds_pipe
+
     result = OddsSnapshot()
-    parts = market_pipe.split("|")
+    try:
+        odds_map = parse_odds_pipe(market_pipe)
+    except Exception:
+        logger.warning("Failed to parse odds pipe for market %s", market_id, exc_info=True)
+        return result
 
-    odds_by_selection: dict[str, float] = {}
-
-    i = 1
-    while i < len(parts) - 1:
-        token = parts[i]
-        next_token = parts[i + 1] if i + 1 < len(parts) else ""
-
-        if (
-            token.lstrip("-").isdigit()
-            and len(token) >= 6
-            and next_token in STATUS_TOKENS
-        ):
-            selection_id = token
-            i += 1
-
-            while i < len(parts) and parts[i] in STATUS_TOKENS:
-                i += 1
-
-            if i < len(parts):
-                try:
-                    back_odds = float(parts[i])
-                    if back_odds > 0:
-                        odds_by_selection[selection_id] = back_odds
-                except ValueError:
-                    pass
-            continue
-
-        i += 1
-
-    sel_ids = list(odds_by_selection.keys())
+    sel_ids = list(odds_map.keys())
     if len(sel_ids) >= 1:
-        result.back_odds_a = odds_by_selection[sel_ids[0]]
+        result.back_odds_a = odds_map[sel_ids[0]]
     if len(sel_ids) >= 2:
-        result.back_odds_b = odds_by_selection[sel_ids[1]]
+        result.back_odds_b = odds_map[sel_ids[1]]
 
-    if not odds_by_selection:
+    if not odds_map:
         logger.debug("No odds selections found in pipe for market %s", market_id)
 
     return result

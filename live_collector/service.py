@@ -2,7 +2,7 @@
 
 Runs in a daemon thread spawned by ``run_platform()``.  For every LIVE
 match it polls Flashscore scores (every 10 s) and betting odds (every
-2 s), writing only when data changes.
+2 s) independently, writing only when data changes (hash-deduplicated).
 """
 
 import asyncio
@@ -165,7 +165,12 @@ def _try_lazy_betting_match(session, live_matches: list) -> None:
 
 
 async def _collect_tick(matches: list[dict]) -> None:
-    """Poll all live matches concurrently, batch-insert new ticks."""
+    """Poll all live matches concurrently, batch-insert new ticks.
+
+    Scores are polled every 10 s (throttled per match).  Odds are polled
+    every 2 s.  Both are hash-deduplicated — only changed data is
+    inserted.
+    """
     score_batch: list[dict] = []
     odds_batch: list[dict] = []
 
@@ -205,7 +210,7 @@ async def _collect_tick(matches: list[dict]) -> None:
             if snap.match_finished:
                 mark_match_finished(mid)
 
-        # -- odds (every tick — 2 s) ---------------------------------------
+        # -- odds (every 2 s) ---------------------------------------------
         bmid = m.get("betting_market_id")
         if bmid:
             from live_collector.betting_live import OddsSnapshot, poll_betting_odds
