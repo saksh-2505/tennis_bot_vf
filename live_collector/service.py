@@ -209,6 +209,7 @@ async def _collect_tick(matches: list[dict]) -> None:
 
             if snap.match_finished:
                 mark_match_finished(mid)
+                _cleanup_match(mid)
 
         # -- odds (every 2 s) ---------------------------------------------
         bmid = m.get("betting_market_id")
@@ -261,6 +262,13 @@ def _score_due(match_id: int) -> bool:
         _score_last_poll[match_id] = now
         return True
     return False
+
+
+def _cleanup_match(match_id: int) -> None:
+    """Remove in-memory dedup/state entries for a finished match."""
+    _score_hash.pop(match_id, None)
+    _odds_hash.pop(match_id, None)
+    _score_last_poll.pop(match_id, None)
 
 
 # ---- heartbeat -----------------------------------------------------------

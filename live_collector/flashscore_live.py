@@ -58,7 +58,7 @@ class ScoreSnapshot:
         return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def poll_flashscore_score(match_id: str, flashscore_match_id: str) -> ScoreSnapshot:
+def poll_flashscore_score(tracked_match_id: int, flashscore_match_id: str) -> ScoreSnapshot:
     """Fetch the Flashscore mobile match page and extract the current score state."""
     url = MOBILE_MATCH_URL.format(match_id=flashscore_match_id)
     try:

@@ -276,5 +276,5 @@ def _parse_time(time_str: str, match_date: date | None = None) -> datetime | Non
         t = time(int(m.group(1)), int(m.group(2)))
     except ValueError:
         return None
-    d = match_date or date.today()
-    return datetime.combine(d, t)
+    d = match_date or datetime.now(timezone.utc).date()
+    return datetime.combine(d, t, tzinfo=timezone.utc)

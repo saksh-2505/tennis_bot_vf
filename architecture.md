@@ -6,20 +6,20 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** 114 Python files, 11,318 lines (excl. tests/). Updated 2026-07-06 17:08 UTC.
+**Current Status:** 114 Python files, 11,354 lines (excl. tests/). Updated 2026-07-06 18:45 UTC.
 
-**Auto-generated file stats:** 114 Python files, 11,318 lines (excl. tests/). Updated 2026-07-06 17:08 UTC.
+**Auto-generated file stats:** 114 Python files, 11,354 lines (excl. tests/). Updated 2026-07-06 18:45 UTC.
 
 - **incidents/**: 16 files, 2,590 lines
 - **verification/**: 26 files, 2,232 lines
 - **observability/**: 18 files, 1,980 lines
 - **collector/**: 10 files, 1,290 lines
-- **live_collector/**: 4 files, 667 lines
+- **live_collector/**: 4 files, 675 lines
 - **finalizer/**: 5 files, 522 lines
 - **models/**: 9 files, 399 lines
-- **orchestrator/**: 2 files, 335 lines
+- **orchestrator/**: 2 files, 357 lines
 - **scripts/**: 6 files, 333 lines
-- **root/**: 6 files, 323 lines
+- **root/**: 6 files, 329 lines
 - **monitor/**: 1 files, 291 lines
 - **registry/**: 2 files, 174 lines
 - **shared/**: 3 files, 152 lines
@@ -31,10 +31,11 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 - **storage/**: 1 files, 5 lines
 ---
 
-## Recent Fixes (2026-07-06)
+## Recent Fixes (2026-07-07)
 
 | Fix | Module | Impact |
 |-----|--------|--------|
+| Incidents: retention + stuck matches + timezone | `database.py`, `orchestrator/service.py`, `collector/flashscore/parser.py`, `live_collector/` | TimescaleDB 90-day retention policy prevents unbounded growth. Matches with `scheduled_start=NULL` expire after 24h (unblocking rediscovery). `_parse_time()` returns timezone-aware UTC. In-memory dicts cleaned up on match finish. Unused parameter removed. |
 | Odds capture: API headers fix + parser reuse | `live_collector/betting_live.py` | Odds API now sends proper Origin/Referer headers (matching discovery client). Pipe parsing reuses battle-tested `parse_odds_pipe` from collector instead of duplicate logic. |
 | Multi-format player name resolution | `registry/service.py` | `_find_player()` tries exact, reversed, last-name partial, and handles abbreviated names. Player ID coverage: **1 → 381/409 (93%)** |
 | Match duration calculation | `live_collector/flashscore_live.py` | Falls back to first score tick when `scheduled_start` is after `actual_finish` or >8h |

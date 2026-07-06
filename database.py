@@ -123,6 +123,12 @@ def init_db() -> None:
                     f"'{tbl}', 'tracked_match_id',"
                     f" if_not_exists => TRUE)"
                 ))
+                # Drop chunks older than 90 days to prevent unbounded growth
+                conn.execute(text(
+                    f"SELECT add_retention_policy("
+                    f"'{tbl}', INTERVAL '90 days',"
+                    f" if_not_exists => TRUE)"
+                ))
             except Exception:
                 logger.warning("Could not add policy for %s — skipping", tbl)
         conn.commit()

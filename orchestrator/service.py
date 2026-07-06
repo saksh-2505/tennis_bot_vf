@@ -17,23 +17,45 @@ def update_match_statuses() -> int:
     """Transition matches from DISCOVERED/SCHEDULED → LIVE when their
     scheduled start time has passed.
 
+    Also expires matches that have been stuck in DISCOVERED/SCHEDULED
+    for over 24 h without a ``scheduled_start`` (parsing failure), so
+    they don't block the rediscovery fallback.
+
     Returns the number of matches whose status was changed.
 
     This function performs NO network calls — it is a pure database read
     + time comparison.  All datetimes are treated as UTC.
-
-    .. note::
-
-        FINISHED is NOT set here.  The live scraper (Phase 2 live data
-        collection) is responsible for marking matches as FINISHED.
     """
     import database as db
     from models.tracked_match import TrackedMatch
+    from datetime import timedelta as dt_timedelta
 
     now_utc = datetime.now(timezone.utc)
+    expiry_threshold = now_utc - dt_timedelta(hours=24)
     updated = 0
 
     with db.SessionLocal() as session:
+        # -- Expire stuck DISCOVERED/SCHEDULED matches with no start time -----
+        stuck = (
+            session.query(TrackedMatch)
+            .filter(
+                TrackedMatch.tracking_enabled == True,               # noqa: E712
+                TrackedMatch.scheduled_start.is_(None),
+                TrackedMatch.status.in_(["DISCOVERED", "SCHEDULED"]),
+                TrackedMatch.created_at < expiry_threshold,
+            )
+            .all()
+        )
+        for m in stuck:
+            m.status = "EXPIRED"
+            m.updated_at = now_utc
+            updated += 1
+            logger.info(
+                "Match %s (%s vs %s) expired (no start time, stuck >24h)",
+                m.flashscore_match_id, m.player1_name, m.player2_name,
+            )
+
+        # -- Transition DISCOVERED/SCHEDULED → LIVE --------------------------
         matches = (
             session.query(TrackedMatch)
             .filter(
