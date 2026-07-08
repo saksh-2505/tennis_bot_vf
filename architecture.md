@@ -6,14 +6,14 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** 114 Python files, 11,354 lines (excl. tests/). Updated 2026-07-06 18:45 UTC.
+**Current Status:** 114 Python files, 11,355 lines (excl. tests/). Updated 2026-07-08 09:56 UTC.
 
-**Auto-generated file stats:** 114 Python files, 11,354 lines (excl. tests/). Updated 2026-07-06 18:45 UTC.
+**Auto-generated file stats:** 114 Python files, 11,355 lines (excl. tests/). Updated 2026-07-08 09:56 UTC.
 
 - **incidents/**: 16 files, 2,590 lines
 - **verification/**: 26 files, 2,232 lines
 - **observability/**: 18 files, 1,980 lines
-- **collector/**: 10 files, 1,290 lines
+- **collector/**: 10 files, 1,291 lines
 - **live_collector/**: 4 files, 675 lines
 - **finalizer/**: 5 files, 522 lines
 - **models/**: 9 files, 399 lines
@@ -31,10 +31,13 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 - **storage/**: 1 files, 5 lines
 ---
 
-## Recent Fixes (2026-07-07)
+## Recent Fixes (2026-07-08)
 
 | Fix | Module | Impact |
 |-----|--------|--------|
+| Name matching: abbreviated Flashscore names | `collector/betting_site/parser.py` | `_extract_last_name` now handles abbreviated "LAST INITIAL" format (e.g. "DJOKOVIC N" → "djokovic" not "n"). Fixes all downstream name matching (Phase 2 betting site discovery + Phase 4 registry + lazy matcher). |
+| Registry: last-name matching | `registry/service.py` | `build_match_registry()` now uses `_names_match` (same logic as Phase 2) instead of exact tuple matching — betting markets now correctly linked to TrackedMatch even when Flashscore names are abbreviated. |
+| Odds interval: 2s → 3s | `config.py`, `.env.example`, `docker-compose.yml` | Reduced polling frequency per user request |
 | Incidents: retention + stuck matches + timezone | `database.py`, `orchestrator/service.py`, `collector/flashscore/parser.py`, `live_collector/` | TimescaleDB 90-day retention policy prevents unbounded growth. Matches with `scheduled_start=NULL` expire after 24h (unblocking rediscovery). `_parse_time()` returns timezone-aware UTC. In-memory dicts cleaned up on match finish. Unused parameter removed. |
 | Odds capture: API headers fix + parser reuse | `live_collector/betting_live.py` | Odds API now sends proper Origin/Referer headers (matching discovery client). Pipe parsing reuses battle-tested `parse_odds_pipe` from collector instead of duplicate logic. |
 | Multi-format player name resolution | `registry/service.py` | `_find_player()` tries exact, reversed, last-name partial, and handles abbreviated names. Player ID coverage: **1 → 381/409 (93%)** |

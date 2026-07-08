@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from collector.betting_site.parser import _extract_last_name, _names_match
 from database import engine
 
 if TYPE_CHECKING:
@@ -70,20 +71,19 @@ def build_match_registry() -> list["TrackedMatch"]:
         fs_matches = session.query(FlashscoreFoundMatch).all()
         bt_matches = session.query(BettingsiteFoundMatch).all()
 
-        bt_by_players: dict[tuple[str, str], list[BettingsiteFoundMatch]] = {}
-        for bt in bt_matches:
-            key = (bt.player_a, bt.player_b)
-            bt_by_players.setdefault(key, []).append(bt)
-
         used_bt_market_ids: set[str] = set()
 
         for fs in fs_matches:
-            candidates: list[BettingsiteFoundMatch] = []
-            key1 = (fs.player_a, fs.player_b)
-            key2 = (fs.player_b, fs.player_a)
+            fs_last_a = _extract_last_name(fs.player_a)
+            fs_last_b = _extract_last_name(fs.player_b)
 
-            candidates.extend(bt_by_players.get(key1, []))
-            candidates.extend(bt_by_players.get(key2, []))
+            candidates: list[BettingsiteFoundMatch] = []
+            for bt in bt_matches:
+                if bt.market_id in used_bt_market_ids:
+                    continue
+                event_name = f"{bt.player_a} v {bt.player_b}".lower()
+                if _names_match(event_name, fs_last_a, fs_last_b) or _names_match(event_name, fs_last_b, fs_last_a):
+                    candidates.append(bt)
 
             p1 = _find_player(session, fs.player_a)
             p2 = _find_player(session, fs.player_b)

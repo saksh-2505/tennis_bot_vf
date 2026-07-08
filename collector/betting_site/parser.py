@@ -131,11 +131,12 @@ def _extract_last_name(full_name: str) -> str:
     parts = name.split()
     if len(parts) <= 1:
         return name
-    if len(parts) == 2:
-        return parts[-1]
+    # Flashscore abbreviated format: "LAST INITIAL" (e.g. "DJOKOVIC N" or "DJOKOVIC N.")
+    # When the final word is a single-character initial, use the first part as the surname.
+    if len(parts[-1].rstrip(".")) <= 1:
+        return parts[0] if len(parts) == 2 else " ".join(parts[:-1])
     if len(parts) >= 3:
-        last_two = f"{parts[-2]} {parts[-1]}"
-        return last_two
+        return f"{parts[-2]} {parts[-1]}"
     return parts[-1]
 
 

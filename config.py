@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     DISCOVERY_ENABLED: bool = True
 
     LIVE_SCORE_INTERVAL_SECONDS: int = 10
-    LIVE_ODDS_INTERVAL_SECONDS: int = 2
+    LIVE_ODDS_INTERVAL_SECONDS: int = 3
     LIVE_PREFETCH_MINUTES: int = 5
 
     model_config = {
