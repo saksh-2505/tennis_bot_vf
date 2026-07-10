@@ -151,6 +151,12 @@ def _names_match(event_name: str, last_a: str, last_b: str) -> bool:
 
 
 def _word_matches(word: str, event_name: str) -> bool:
+    if len(word) < 4:
+        # Short words (e.g. "ma", "wu", "li", "lu", "na"): require
+        # word-boundary match to avoid false positives like "ma" matching
+        # inside "maxime" or "maria".
+        padded = f" {event_name} "
+        return f" {word} " in padded
     if word in event_name:
         return True
     if len(word) >= 5:

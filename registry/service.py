@@ -1,5 +1,6 @@
 """Match registry. Cross-references Flashscore matches with Betting Site markets."""
 import logging
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import or_
@@ -116,6 +117,34 @@ def build_match_registry() -> list["TrackedMatch"]:
                     fs.player_b, fs.flashscore_match_id,
                 )
 
+            # Guard: if this betting market is already assigned to a
+            # DIFFERENT tracked match, skip it instead of crashing on
+            # the unique constraint.  (Caused by false-positive name
+            # matching — two Flashscore matches matching the same
+            # betting-site event.)
+            if betting_market_id:
+                conflicting = (
+                    session.query(TrackedMatch)
+                    .filter(
+                        TrackedMatch.betting_market_id == betting_market_id,
+                        TrackedMatch.flashscore_match_id != fs.flashscore_match_id,
+                    )
+                    .first()
+                )
+                if conflicting is not None:
+                    logger.warning(
+                        "Market %s already assigned to %s (%s vs %s) — "
+                        "skipping for %s (%s vs %s)",
+                        betting_market_id,
+                        conflicting.flashscore_match_id,
+                        conflicting.player1_name,
+                        conflicting.player2_name,
+                        fs.flashscore_match_id,
+                        fs.player_a,
+                        fs.player_b,
+                    )
+                    betting_market_id = None
+
             existing = (
                 session.query(TrackedMatch)
                 .filter_by(flashscore_match_id=fs.flashscore_match_id)
@@ -130,6 +159,15 @@ def build_match_registry() -> list["TrackedMatch"]:
                 existing.player2_name = fs.player_b
                 existing.tournament = fs.tournament
                 existing.scheduled_start = fs.scheduled_start_time
+                # When status transitions to a terminal state, record
+                # the finish time so the finalizer can use it.
+                if existing.status != fs.status and fs.status in (
+                    "FINISHED", "RETIRED", "WALKOVER",
+                ):
+                    existing.actual_finish = (
+                        existing.actual_finish
+                        or datetime.now(timezone.utc)
+                    )
                 existing.status = fs.status
                 results.append(existing)
             else:

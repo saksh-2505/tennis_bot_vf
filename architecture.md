@@ -6,14 +6,14 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** 114 Python files, 11,355 lines (excl. tests/). Updated 2026-07-08 09:56 UTC.
+**Current Status:** 114 Python files, 11,399 lines (excl. tests/). Updated 2026-07-10 10:53 UTC.
 
-**Auto-generated file stats:** 114 Python files, 11,355 lines (excl. tests/). Updated 2026-07-08 09:56 UTC.
+**Auto-generated file stats:** 114 Python files, 11,399 lines (excl. tests/). Updated 2026-07-10 10:53 UTC.
 
 - **incidents/**: 16 files, 2,590 lines
 - **verification/**: 26 files, 2,232 lines
 - **observability/**: 18 files, 1,980 lines
-- **collector/**: 10 files, 1,291 lines
+- **collector/**: 10 files, 1,297 lines
 - **live_collector/**: 4 files, 675 lines
 - **finalizer/**: 5 files, 522 lines
 - **models/**: 9 files, 399 lines
@@ -21,7 +21,7 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 - **scripts/**: 6 files, 333 lines
 - **root/**: 6 files, 329 lines
 - **monitor/**: 1 files, 291 lines
-- **registry/**: 2 files, 174 lines
+- **registry/**: 2 files, 212 lines
 - **shared/**: 3 files, 152 lines
 - **backtest/**: 1 files, 5 lines
 - **dashboard/**: 1 files, 5 lines
@@ -31,21 +31,27 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 - **storage/**: 1 files, 5 lines
 ---
 
-## Recent Fixes (2026-07-08)
+## Recent Fixes (2026-07-10)
 
 | Fix | Module | Impact |
 |-----|--------|--------|
-| Name matching: abbreviated Flashscore names | `collector/betting_site/parser.py` | `_extract_last_name` now handles abbreviated "LAST INITIAL" format (e.g. "DJOKOVIC N" → "djokovic" not "n"). Fixes all downstream name matching (Phase 2 betting site discovery + Phase 4 registry + lazy matcher). |
-| Registry: last-name matching | `registry/service.py` | `build_match_registry()` now uses `_names_match` (same logic as Phase 2) instead of exact tuple matching — betting markets now correctly linked to TrackedMatch even when Flashscore names are abbreviated. |
+| `_word_matches` short-name false positives | `collector/betting_site/parser.py` | Words <4 chars now require word-boundary match (`" ma " in " event "`) instead of substring match (`"ma" in "maxime"` → True). Prevents "MA L.", "WU Y.", etc. from matching 3+ betting markets simultaneously. |
+| Registry: IntegrityError crash guard | `registry/service.py` | Before assigning `betting_market_id`, checks if another TrackedMatch already has it. Skips instead of crashing the entire `build_match_registry()` cycle. |
+| Registry: set `actual_finish` on FINISHED | `registry/service.py` | When registry transitions a match to FINISHED/RETIRED/WALKOVER, sets `actual_finish` timestamp. Prevents finalized matches from lacking finish time. |
+| DB: backfill `actual_finish` | Oracle VM | 81 FINISHED matches without `actual_finish` backfilled with `updated_at` value. |
+| Name matching: abbreviated Flashscore names | `collector/betting_site/parser.py` | `_extract_last_name` now handles abbreviated "LAST INITIAL" format (e.g. "DJOKOVIC N" → "djokovic" not "n"). Fixes all downstream name matching. |
+| Registry: last-name matching | `registry/service.py` | `build_match_registry()` now uses `_names_match` instead of exact tuple matching — betting markets correctly linked even when Flashscore names are abbreviated. |
 | Odds interval: 2s → 3s | `config.py`, `.env.example`, `docker-compose.yml` | Reduced polling frequency per user request |
-| Incidents: retention + stuck matches + timezone | `database.py`, `orchestrator/service.py`, `collector/flashscore/parser.py`, `live_collector/` | TimescaleDB 90-day retention policy prevents unbounded growth. Matches with `scheduled_start=NULL` expire after 24h (unblocking rediscovery). `_parse_time()` returns timezone-aware UTC. In-memory dicts cleaned up on match finish. Unused parameter removed. |
-| Odds capture: API headers fix + parser reuse | `live_collector/betting_live.py` | Odds API now sends proper Origin/Referer headers (matching discovery client). Pipe parsing reuses battle-tested `parse_odds_pipe` from collector instead of duplicate logic. |
-| Multi-format player name resolution | `registry/service.py` | `_find_player()` tries exact, reversed, last-name partial, and handles abbreviated names. Player ID coverage: **1 → 381/409 (93%)** |
+| Incidents: retention + stuck matches + timezone | `database.py`, `orchestrator/service.py`, `collector/flashscore/parser.py`, `live_collector/` | TimescaleDB 90-day retention policy prevents unbounded growth. Matches with `scheduled_start=NULL` expire after 24h. `_parse_time()` returns timezone-aware UTC. In-memory dicts cleaned up on match finish. |
+| Odds capture: API headers fix + parser reuse | `live_collector/betting_live.py` | Odds API now sends proper Origin/Referer headers. Pipe parsing reuses battle-tested `parse_odds_pipe`. |
+| Multi-format player name resolution | `registry/service.py` | `_find_player()` tries exact, reversed, last-name partial, and handles abbreviated names. |
 | Match duration calculation | `live_collector/flashscore_live.py` | Falls back to first score tick when `scheduled_start` is after `actual_finish` or >8h |
 | Lazy betting market matching | `live_collector/service.py` | Every 60s, re-attempts fuzzy name matching for LIVE matches without a betting market |
-| SQLAlchemy text() fix | `incidents/recovery.py` | Params passed to `execute()` instead of `text()` — eliminates runtime errors |
-| Monitor healthcheck | `Dockerfile.monitor` | Added `procps` package so `pgrep` works; all 3 containers now report healthy |
+| SQLAlchemy text() fix | `incidents/recovery.py` | Params passed to `execute()` instead of `text()` |
+| Monitor healthcheck | `Dockerfile.monitor` | Added `procps` package so `pgrep` works |
 | Observability wiring | `main.py`, `run_monitor.py` | `initialize_observability()` + JSON structured logging active |
+
+## Previous Fixes (2026-07-08)
 | Telegram consolidation | `shared/notify.py` | All 4 Telegram callers (notifier, finalizer, bot helpers, external monitor) delegate to single client |
 
 ---
