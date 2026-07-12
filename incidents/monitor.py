@@ -168,18 +168,25 @@ def _check_cpu() -> list[dict]:
 
 def _check_memory() -> list[dict]:
     try:
-        total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
-        avail = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_AVPHYS_PAGES")
-        if total > 0:
-            used = total - avail
-            mem_pct = (used / total) * 100
+        with open("/proc/meminfo") as f:
+            mem = {}
+            for line in f:
+                parts = line.split(":")
+                if len(parts) == 2:
+                    mem[parts[0].strip()] = int(parts[1].strip().split()[0])
+
+        total_kb = mem.get("MemTotal", 0)
+        avail_kb = mem.get("MemAvailable", 0)
+        if total_kb > 0 and avail_kb > 0:
+            used_kb = total_kb - avail_kb
+            mem_pct = (used_kb / total_kb) * 100
             if mem_pct > MEMORY_THRESHOLD_PERCENT:
                 return [{
                     "severity": "WARNING",
                     "category": "Infrastructure",
                     "module": "system",
                     "title": f"Memory usage critical: {mem_pct:.1f}%",
-                    "summary": f"Used: {used // (1024**2)}MB / Total: {total // (1024**2)}MB",
+                    "summary": f"Used: {used_kb // 1024}MB / Total: {total_kb // 1024}MB",
                 }]
     except (OSError, AttributeError, ValueError):
         logger.debug("Memory check unavailable")
