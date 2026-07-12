@@ -314,7 +314,7 @@ def _completed_data(db: Session, match_id: int) -> dict | None:
 
 def _match_incidents(db: Session, match_id: int) -> list[dict]:
     try:
-        from models.incidents import Incident
+        from incidents.models import Incident
 
         rows = (
             db.query(Incident)

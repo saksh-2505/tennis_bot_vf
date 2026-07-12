@@ -13,7 +13,7 @@ router = APIRouter()
 def get_overview(db: Session = Depends(get_db)):
     from models.tracked_match import TrackedMatch
     from models.completed_match import CompletedMatch
-    from models.incidents import Incident
+    from incidents.models import Incident
 
     total = db.query(TrackedMatch).count()
     live = db.query(TrackedMatch).filter(TrackedMatch.status == "LIVE").count()
