@@ -32,6 +32,12 @@ class TrackedMatch(Base):
         TIMESTAMP(timezone=True), nullable=True
     )
     match_duration_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    market_assigned_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    collection_started_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
     live_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="DISCOVERED")
     tracking_enabled: Mapped[bool] = mapped_column(

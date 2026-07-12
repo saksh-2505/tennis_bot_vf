@@ -5,12 +5,23 @@
 - Match discovery (Flashscore + Betting Site)
 - Player profiles (Tennis Explorer)
 - Match registry (Flashscore ↔ Betting Site matching)
-- Live score/odds collection (10s/2s polling)
+- Live score/odds collection (10s/3s polling)
 - Match finalization (stats, validation, completed_matches)
 - Incident management (detection, packages, recovery, auto-resolve)
 - Telegram bot (23 commands: matches, players, live data, system)
 - Production deployment (Oracle Cloud, 3 Docker containers)
 - TimescaleDB hypertables with compression
+- Confidence-based market matching (matcher/) — multi-signal with 5 weighted signals
+- MatchState-based score polling — detects set/game/point/server changes
+- Event-synchronized odds — captures odds on every score state change
+- Data repair engine (repair/) — 7 repair actions for completed matches
+- Failure classification — every failed match gets exactly one primary category
+- Quality scoring — A–F grade for every completed match
+- Report generation (reports/) — 6 report types
+- **Developer Console (Phase 4)** — Next.js + FastAPI, 38 REST endpoints + WebSocket
+  - 21 pages: Dashboard, Live Matches, Match Explorer, Collectors, Market Matching, Discovery,
+    Registry, Database, Quality, Validation, Verification, Observability, Pipeline,
+    Incidents, Repair, Reports, Analytics, Search, Timeline, Logs
 
 ## Active
 
@@ -18,12 +29,14 @@
 - Incident monitor polling every 60s
 - Discovery cycle every 12h
 - Status monitor every 5min
+- Repair + quality scoring every 30min
+- Console API running on port 8000
 
 ## Known Issues
 
 | Issue | Status | Priority |
 |-------|--------|----------|
-| No matching Flashscore bet for some betting markets (name mismatch) | Monitoring | Low |
+| Betting market coverage ~28% (matcher needs tuning for Qualifying rounds) | Active | High |
 | Betting site 429 rate limits during discovery | Mitigated (retry/backoff) | Low |
 | Flashscore mobile parser returns empty for some match pages | Monitoring | Low |
 | No tests for Telegram bot handlers | Open | Medium |

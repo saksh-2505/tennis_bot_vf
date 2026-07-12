@@ -46,6 +46,22 @@ def _run_migrations(conn):
         "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS expected_score_states INTEGER",
         "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS unique_score_states INTEGER",
         "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS odds_at_score_pct DOUBLE PRECISION",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS score_completeness_pct DOUBLE PRECISION",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS odds_completeness_pct DOUBLE PRECISION",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS timeline_completeness_pct DOUBLE PRECISION",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS synchronization_score DOUBLE PRECISION",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS quality_grade VARCHAR(2)",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS quality_score DOUBLE PRECISION",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS failure_category VARCHAR(64)",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS failure_reason VARCHAR(1024)",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS market_assigned_at TIMESTAMPTZ",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS collector_started_at TIMESTAMPTZ",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS collector_finished_at TIMESTAMPTZ",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS repair_actions VARCHAR(1024)",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS repair_count INTEGER DEFAULT 0",
+        "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS last_repaired_at TIMESTAMPTZ",
+        "ALTER TABLE tracked_matches ADD COLUMN IF NOT EXISTS market_assigned_at TIMESTAMPTZ",
+        "ALTER TABLE tracked_matches ADD COLUMN IF NOT EXISTS collection_started_at TIMESTAMPTZ",
     ]
     for sql in migrations:
         try:
@@ -64,8 +80,9 @@ def init_db() -> None:
     from models.live_score import LiveScore
     from models.system_event import SystemEvent
     from models.tracked_match import TrackedMatch
+    from matcher.models import MatchAttempt
 
-    models = [CompletedMatch, LiveScore, LiveOdds, SystemEvent, TrackedMatch]
+    models = [CompletedMatch, LiveScore, LiveOdds, SystemEvent, TrackedMatch, MatchAttempt]
     for m in models:
         m.metadata.create_all(bind=engine)
 

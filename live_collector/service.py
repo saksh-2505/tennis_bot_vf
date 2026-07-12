@@ -6,9 +6,12 @@ match it polls Flashscore scores (every 10 s) and betting odds (every
 """
 
 import asyncio
+import hashlib
+import json
 import logging
 import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from config import settings
@@ -27,6 +30,82 @@ _last_tick_ts: float = 0.0
 # Lazy betting matching: throttle to once per 60s
 _last_betting_match_ts: float = 0.0
 _BETTING_MATCH_INTERVAL = 60.0
+
+
+@dataclass
+class MatchState:
+    set_score_a: int | None = None
+    set_score_b: int | None = None
+    game_score_a: int | None = None
+    game_score_b: int | None = None
+    point_score: str | None = None
+    server: str | None = None
+    is_tiebreak: bool = False
+    match_finished: bool = False
+
+    def state_hash(self) -> str:
+        payload = json.dumps(
+            {
+                "sa": self.set_score_a,
+                "sb": self.set_score_b,
+                "ga": self.game_score_a,
+                "gb": self.game_score_b,
+                "pt": self.point_score,
+                "sv": self.server,
+                "tb": self.is_tiebreak,
+                "mf": self.match_finished,
+            },
+            sort_keys=True,
+        )
+        return hashlib.sha256(payload.encode()).hexdigest()
+
+    def changed_from(self, prev: "MatchState | None") -> dict | None:
+        if prev is None:
+            return {"type": "initial"}
+        changes = {}
+
+        if self.set_score_a != prev.set_score_a or self.set_score_b != prev.set_score_b:
+            changes["set_changed"] = {
+                "from": f"{prev.set_score_a}-{prev.set_score_b}",
+                "to": f"{self.set_score_a}-{self.set_score_b}",
+            }
+        if self.game_score_a != prev.game_score_a or self.game_score_b != prev.game_score_b:
+            changes["game_changed"] = {
+                "from": f"{prev.game_score_a}-{prev.game_score_b}",
+                "to": f"{self.game_score_a}-{self.game_score_b}",
+            }
+        if self.point_score != prev.point_score:
+            changes["point_changed"] = {
+                "from": prev.point_score,
+                "to": self.point_score,
+            }
+        if self.server != prev.server:
+            changes["server_changed"] = {
+                "from": prev.server,
+                "to": self.server,
+            }
+        if self.is_tiebreak != prev.is_tiebreak:
+            changes["tiebreak_changed"] = True
+        if self.match_finished and not prev.match_finished:
+            changes["match_finished"] = True
+
+        return changes if changes else None
+
+    @classmethod
+    def from_snapshot(cls, snap) -> "MatchState":
+        return cls(
+            set_score_a=snap.set_score_a,
+            set_score_b=snap.set_score_b,
+            game_score_a=snap.game_score_a,
+            game_score_b=snap.game_score_b,
+            point_score=snap.point_score,
+            server=snap.server,
+            is_tiebreak=snap.is_tiebreak,
+            match_finished=snap.match_finished,
+        )
+
+
+_score_state: dict[int, MatchState] = {}
 
 
 def get_heartbeat() -> float:
@@ -121,7 +200,8 @@ def _try_lazy_betting_match(session, live_matches: list) -> None:
     """Periodically try to find betting markets for LIVE matches that have none.
 
     The betting site may add events for matches after the discovery cycle
-    (which runs every 12h).  This lazy matcher runs every 60s.
+    (which runs every 12h).  This lazy matcher runs every 60s using the
+    confidence-based matcher engine.
     """
     global _last_betting_match_ts
 
@@ -130,38 +210,33 @@ def _try_lazy_betting_match(session, live_matches: list) -> None:
         return
     _last_betting_match_ts = now
 
-    from models.bettingsite import BettingsiteFoundMatch
-    from collector.betting_site.parser import _extract_last_name, _names_match
-
-    used_ids = {m.betting_market_id for m in live_matches if m.betting_market_id}
-    orphan_bt = session.query(BettingsiteFoundMatch).all()
-    if not orphan_bt:
+    unmatched = [m for m in live_matches if not m.betting_market_id]
+    if not unmatched:
         return
 
-    matched = False
-    for tm in live_matches:
-        if tm.betting_market_id:
-            continue
+    from models.bettingsite import BettingsiteFoundMatch
+    from matcher.engine import continuous_retry
 
-        last_a = _extract_last_name(tm.player1_name or "")
-        last_b = _extract_last_name(tm.player2_name or "")
+    bt_events_raw = session.query(BettingsiteFoundMatch).all()
+    if not bt_events_raw:
+        return
 
-        for bt in orphan_bt:
-            if bt.market_id in used_ids:
-                continue
-            event_name = f"{bt.player_a} v {bt.player_b}".lower()
-            if _names_match(event_name, last_a, last_b) or _names_match(event_name, last_b, last_a):
-                tm.betting_market_id = bt.market_id
-                used_ids.add(bt.market_id)
-                matched = True
-                logger.info(
-                    "Lazy betting match: %s vs %s -> market %s",
-                    tm.player1_name, tm.player2_name, bt.market_id,
-                )
-                break
+    bt_events = [
+        {
+            "name": f"{bt.player_a} v {bt.player_b}",
+            "market_id": bt.market_id,
+            "runner_a": bt.player_a,
+            "runner_b": bt.player_b,
+        }
+        for bt in bt_events_raw
+    ]
 
-    if matched:
-        session.commit()
+    assigned = continuous_retry(session, unmatched, bt_events)
+    if assigned:
+        logger.info(
+            "Continuous retry: assigned %d markets to previously unmatched LIVE matches",
+            assigned,
+        )
 
 
 async def _collect_tick(matches: list[dict]) -> None:
@@ -189,9 +264,15 @@ async def _collect_tick(matches: list[dict]) -> None:
                 poll_flashscore_score, mid, m["flashscore_match_id"]
             )
 
-            h = snap.content_hash()
+            new_state = MatchState.from_snapshot(snap)
+            prev_state = _score_state.get(mid)
+            changes = new_state.changed_from(prev_state)
+            h = new_state.state_hash()
+
             if h != _score_hash.get(mid):
                 _score_hash[mid] = h
+                _score_state[mid] = new_state
+
                 score_batch.append({
                     "tracked_match_id": mid,
                     "flashscore_match_id": m["flashscore_match_id"],
@@ -207,13 +288,45 @@ async def _collect_tick(matches: list[dict]) -> None:
                     "content_hash": h,
                 })
 
+                if changes:
+                    logger.debug(
+                        "Match %d state change: %s",
+                        mid,
+                        " | ".join(changes.keys()),
+                    )
+
+                # Event-synchronized odds: capture odds NOW on state change
+                bmid = m.get("betting_market_id")
+                if changes and bmid:
+                    from live_collector.betting_live import OddsSnapshot, poll_betting_odds
+
+                    odds_snap: OddsSnapshot = await asyncio.to_thread(
+                        poll_betting_odds, bmid,
+                    )
+                    if odds_snap.any_valid():
+                        oh = odds_snap.content_hash()
+                        if oh != _odds_hash.get(mid):
+                            _odds_hash[mid] = oh
+                            odds_batch.append({
+                                "tracked_match_id": mid,
+                                "betting_market_id": bmid,
+                                "timestamp": datetime.now(timezone.utc),
+                                "back_odds_a": odds_snap.back_odds_a,
+                                "back_odds_b": odds_snap.back_odds_b,
+                                "lay_odds_a": odds_snap.lay_odds_a,
+                                "lay_odds_b": odds_snap.lay_odds_b,
+                                "volume_a": odds_snap.volume_a,
+                                "volume_b": odds_snap.volume_b,
+                                "content_hash": oh,
+                            })
+
             if snap.match_finished:
                 mark_match_finished(mid)
                 _cleanup_match(mid)
 
-        # -- odds (every 2 s) ---------------------------------------------
+        # -- odds (every 2 s, only if no score-driven capture happened) ---
         bmid = m.get("betting_market_id")
-        if bmid:
+        if bmid and mid not in {r["tracked_match_id"] for r in odds_batch}:
             from live_collector.betting_live import OddsSnapshot, poll_betting_odds
 
             odds_snap: OddsSnapshot = await asyncio.to_thread(
@@ -269,6 +382,7 @@ def _cleanup_match(match_id: int) -> None:
     _score_hash.pop(match_id, None)
     _odds_hash.pop(match_id, None)
     _score_last_poll.pop(match_id, None)
+    _score_state.pop(match_id, None)
 
 
 # ---- heartbeat -----------------------------------------------------------

@@ -124,6 +124,8 @@ def finalize_match(session, tracked_match_id: int) -> CompletedMatch:
         ready_for_feature_extraction=validation.ready_for_feature_extraction,
         ready_for_backtesting=validation.ready_for_backtesting,
         validation_passed=validation.validation_passed,
+        collector_started_at=stats.first_score_timestamp or stats.first_odds_timestamp,
+        collector_finished_at=tm.actual_finish or now,
         exported=False,
         finalized_at=now,
         collector_version=COLLECTOR_VERSION,

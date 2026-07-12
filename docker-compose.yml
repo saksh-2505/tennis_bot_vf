@@ -78,6 +78,27 @@ services:
       retries: 3
       start_period: 30s
 
+  console_api:
+    build:
+      context: .
+      dockerfile: Dockerfile.console_api
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql+psycopg2://tennis:${DB_PASSWORD}@timescaledb:5432/tennis_bot"
+      LOG_LEVEL: "INFO"
+      LOG_FORMAT: "text"
+    ports:
+      - "8000:8000"
+    restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c", "from database import check_connection; exit(0) if check_connection() else exit(1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
 volumes:
   pgdata:
   incident_packages:

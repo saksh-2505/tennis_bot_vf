@@ -63,6 +63,7 @@ def build_match_registry() -> list["TrackedMatch"]:
     from models.bettingsite import BettingsiteFoundMatch
     from models.flashscore import FlashscoreFoundMatch
     from models.tracked_match import TrackedMatch
+    from matcher.engine import match_all
 
     TrackedMatch.metadata.create_all(bind=engine)
 
@@ -72,110 +73,39 @@ def build_match_registry() -> list["TrackedMatch"]:
         fs_matches = session.query(FlashscoreFoundMatch).all()
         bt_matches = session.query(BettingsiteFoundMatch).all()
 
-        used_bt_market_ids: set[str] = set()
+        existing_tracked = {
+            tm.flashscore_match_id: tm
+            for tm in session.query(TrackedMatch).all()
+        }
 
+        bt_events = [
+            {
+                "name": f"{bt.player_a} v {bt.player_b}",
+                "market_id": bt.market_id,
+                "runner_a": bt.player_a,
+                "runner_b": bt.player_b,
+            }
+            for bt in bt_matches
+        ]
+
+        trackable = []
         for fs in fs_matches:
-            fs_last_a = _extract_last_name(fs.player_a)
-            fs_last_b = _extract_last_name(fs.player_b)
+            tm = existing_tracked.get(fs.flashscore_match_id)
+            if tm is None:
+                player1_id = None
+                player2_id = None
+                p1 = _find_player(session, fs.player_a)
+                p2 = _find_player(session, fs.player_b)
+                if p1:
+                    player1_id = p1.player_id
+                if p2:
+                    player2_id = p2.player_id
 
-            candidates: list[BettingsiteFoundMatch] = []
-            for bt in bt_matches:
-                if bt.market_id in used_bt_market_ids:
-                    continue
-                event_name = f"{bt.player_a} v {bt.player_b}".lower()
-                if _names_match(event_name, fs_last_a, fs_last_b) or _names_match(event_name, fs_last_b, fs_last_a):
-                    candidates.append(bt)
-
-            p1 = _find_player(session, fs.player_a)
-            p2 = _find_player(session, fs.player_b)
-
-            betting_market_id: str | None = None
-
-            if not candidates:
-                logger.info(
-                    "Flashscore match %s (%s vs %s) has no betting market — scores only",
-                    fs.flashscore_match_id, fs.player_a, fs.player_b,
-                )
-            else:
-                if len(candidates) > 1:
-                    logger.warning(
-                        "Flashscore match %s (%s vs %s) has %d matching betting markets — using first",
-                        fs.flashscore_match_id, fs.player_a, fs.player_b, len(candidates),
-                    )
-                bt = candidates[0]
-                betting_market_id = bt.market_id
-                used_bt_market_ids.add(bt.market_id)
-
-            if not p1:
-                logger.warning(
-                    "Player %s not found in players table for Flashscore match %s",
-                    fs.player_a, fs.flashscore_match_id,
-                )
-            if not p2:
-                logger.warning(
-                    "Player %s not found in players table for Flashscore match %s",
-                    fs.player_b, fs.flashscore_match_id,
-                )
-
-            # Guard: if this betting market is already assigned to a
-            # DIFFERENT tracked match, skip it instead of crashing on
-            # the unique constraint.  (Caused by false-positive name
-            # matching — two Flashscore matches matching the same
-            # betting-site event.)
-            if betting_market_id:
-                conflicting = (
-                    session.query(TrackedMatch)
-                    .filter(
-                        TrackedMatch.betting_market_id == betting_market_id,
-                        TrackedMatch.flashscore_match_id != fs.flashscore_match_id,
-                    )
-                    .first()
-                )
-                if conflicting is not None:
-                    logger.warning(
-                        "Market %s already assigned to %s (%s vs %s) — "
-                        "skipping for %s (%s vs %s)",
-                        betting_market_id,
-                        conflicting.flashscore_match_id,
-                        conflicting.player1_name,
-                        conflicting.player2_name,
-                        fs.flashscore_match_id,
-                        fs.player_a,
-                        fs.player_b,
-                    )
-                    betting_market_id = None
-
-            existing = (
-                session.query(TrackedMatch)
-                .filter_by(flashscore_match_id=fs.flashscore_match_id)
-                .first()
-            )
-
-            if existing:
-                existing.betting_market_id = betting_market_id
-                existing.player1_id = p1.player_id if p1 else None
-                existing.player2_id = p2.player_id if p2 else None
-                existing.player1_name = fs.player_a
-                existing.player2_name = fs.player_b
-                existing.tournament = fs.tournament
-                existing.scheduled_start = fs.scheduled_start_time
-                # When status transitions to a terminal state, record
-                # the finish time so the finalizer can use it.
-                if existing.status != fs.status and fs.status in (
-                    "FINISHED", "RETIRED", "WALKOVER",
-                ):
-                    existing.actual_finish = (
-                        existing.actual_finish
-                        or datetime.now(timezone.utc)
-                    )
-                existing.status = fs.status
-                results.append(existing)
-            else:
                 tm = TrackedMatch(
                     flashscore_match_id=fs.flashscore_match_id,
-                    betting_market_id=betting_market_id,
-                    player1_id=p1.player_id if p1 else None,
-                    player2_id=p2.player_id if p2 else None,
+                    betting_market_id=None,
+                    player1_id=player1_id,
+                    player2_id=player2_id,
                     player1_name=fs.player_a,
                     player2_name=fs.player_b,
                     tournament=fs.tournament,
@@ -183,29 +113,52 @@ def build_match_registry() -> list["TrackedMatch"]:
                     status=fs.status,
                 )
                 session.add(tm)
+                session.flush()
+                results.append(tm)
+            else:
+                if fs.status != tm.status and fs.status in ("FINISHED", "RETIRED", "WALKOVER"):
+                    tm.actual_finish = tm.actual_finish or datetime.now(timezone.utc)
+                tm.status = fs.status
+                tm.player1_name = fs.player_a
+                tm.player2_name = fs.player_b
+                tm.tournament = fs.tournament
+                tm.scheduled_start = fs.scheduled_start_time
                 results.append(tm)
 
-            if betting_market_id:
-                logger.info(
-                    "Registered match: %s vs %s (%s) — has odds",
-                    fs.player_a, fs.player_b, fs.tournament,
-                )
-            else:
-                logger.info(
-                    "Registered match: %s vs %s (%s) — scores only",
-                    fs.player_a, fs.player_b, fs.tournament,
-                )
+            trackable.append(tm)
 
-        for bt in bt_matches:
-            if bt.market_id not in used_bt_market_ids:
-                logger.warning(
-                    "Betting market %s (%s vs %s) has no matching Flashscore match",
-                    bt.market_id, bt.player_a, bt.player_b,
-                )
+        try:
+            session.commit()
+        except Exception as exc:
+            logger.exception("Failed to commit tracked matches before matching: %s", exc)
+            session.rollback()
+            return results
 
-        session.commit()
+        match_results = match_all(trackable, bt_events, session=session)
 
-        for tm in results:
+        for res in match_results:
+            if res.match_found and res.selected_market_id:
+                for tm in trackable:
+                    if tm.flashscore_match_id == res.flashscore_match_id:
+                        if tm.betting_market_id != res.selected_market_id:
+                            tm.betting_market_id = res.selected_market_id
+                            tm.market_assigned_at = datetime.now(timezone.utc)
+                        break
+
+        try:
+            session.commit()
+        except Exception as exc:
+            logger.exception("Failed to commit market assignments: %s", exc)
+            session.rollback()
+
+        for tm in trackable:
             session.refresh(tm)
+
+        assigned = sum(1 for r in match_results if r.match_found)
+        logger.info(
+            "Registry: %d tracked matches, %d assigned to betting markets "
+            "(%d unmatched)",
+            len(trackable), assigned, len(trackable) - assigned,
+        )
 
     return results

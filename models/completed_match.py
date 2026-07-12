@@ -98,6 +98,32 @@ class CompletedMatch(Base):
     )
     exported: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    score_completeness_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    odds_completeness_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    timeline_completeness_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    synchronization_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    quality_grade: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    failure_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
+    market_assigned_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True,
+    )
+    collector_started_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True,
+    )
+    collector_finished_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True,
+    )
+
+    repair_actions: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    repair_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_repaired_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True,
+    )
+
     finalized_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         default=lambda: datetime.now(timezone.utc),

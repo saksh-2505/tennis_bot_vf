@@ -217,6 +217,9 @@ def run_platform() -> None:
     # Spawn live collector in a background daemon thread
     _spawn_live_collector()
 
+    _last_repair = 0.0
+    _REPAIR_INTERVAL = 1800  # 30 minutes between repair cycles
+
     while True:
         loop_start = time.monotonic()
 
@@ -255,6 +258,19 @@ def run_platform() -> None:
                 logger.info("Finalized %d matches", finalized)
         except Exception:
             logger.exception("Match finalizer tick failed")
+
+        # ---- Repair + Quality Scoring (every 30 min) ----------------------
+        try:
+            if loop_start - _last_repair > _REPAIR_INTERVAL:
+                repaired, scored = _run_repair_and_quality()
+                if repaired or scored:
+                    logger.info(
+                        "Repaired %d matches, quality-scored %d matches",
+                        repaired, scored,
+                    )
+                _last_repair = loop_start
+        except Exception:
+            logger.exception("Repair/quality tick failed")
 
         # ---- Scheduled discovery -----------------------------------------
         if settings.DISCOVERY_ENABLED:
@@ -354,3 +370,57 @@ def _spawn_live_collector() -> None:
     t = threading.Thread(target=run_live_collection_loop, daemon=True)
     t.start()
     logger.info("Live collector thread spawned")
+
+
+def _run_repair_and_quality() -> tuple[int, int]:
+    """Run repair engine + failure classification + quality scoring.
+
+    Returns (repaired_count, quality_scored_count).
+    """
+    import database as db
+    from models.completed_match import CompletedMatch
+    from models.tracked_match import TrackedMatch
+    from repair.engine import run_repairs_on_all
+    from repair.classifier import classify_failure
+    from repair.quality import QualityScores, apply_quality_to_db, compute_quality
+
+    with db.SessionLocal() as session:
+        cm_list = session.query(CompletedMatch).all()
+        if not cm_list:
+            return 0, 0
+
+        tm_map = {
+            tm.id: tm
+            for tm in session.query(TrackedMatch).all()
+        }
+
+        # --- Repairs -------------------------------------------------------
+        repair_stats = run_repairs_on_all(session, cm_list, tm_map)
+
+        # --- Failure classification ----------------------------------------
+        classified = 0
+        for cm in cm_list:
+            if cm.failure_category is None:
+                tm = tm_map.get(cm.tracked_match_id)
+                category = classify_failure(cm, tm)
+                cm.failure_category = category.value
+                classified += 1
+
+        # --- Quality scoring -----------------------------------------------
+        scored = 0
+        for cm in cm_list:
+            if cm.quality_grade is None:
+                scores = compute_quality(cm)
+                apply_quality_to_db(session, cm, scores)
+                scored += 1
+
+        session.commit()
+
+        if repair_stats["individual_fixes"] > 0:
+            logger.info(
+                "Repair: %d individual fixes across %d matches",
+                repair_stats["individual_fixes"],
+                repair_stats["repaired"],
+            )
+
+        return repair_stats["repaired"], scored

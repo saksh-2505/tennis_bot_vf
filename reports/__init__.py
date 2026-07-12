@@ -1,0 +1,36 @@
+"""Reports module — dataset quality, market matching, and diagnostics."""
+from reports.generator import (
+    CollectionReport,
+    DatasetQualityReport,
+    FailureDistributionReport,
+    MarketMatchingReport,
+    OddsCoverageReport,
+    RepairReport,
+    ReplayReadinessReport,
+    generate_all_reports,
+    generate_collection_report,
+    generate_dataset_quality_report,
+    generate_failure_distribution_report,
+    generate_market_matching_report,
+    generate_odds_coverage_report,
+    generate_replay_readiness_report,
+    print_report_summary,
+)
+
+__all__ = [
+    "MarketMatchingReport",
+    "OddsCoverageReport",
+    "CollectionReport",
+    "RepairReport",
+    "FailureDistributionReport",
+    "DatasetQualityReport",
+    "ReplayReadinessReport",
+    "generate_all_reports",
+    "generate_market_matching_report",
+    "generate_odds_coverage_report",
+    "generate_collection_report",
+    "generate_failure_distribution_report",
+    "generate_dataset_quality_report",
+    "generate_replay_readiness_report",
+    "print_report_summary",
+]

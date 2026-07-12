@@ -1,27 +1,33 @@
 # Sports Trading Platform V3 — Architecture
 
+**Working directory:** `sports-trading/` (inside `/home/matrix/Desktop/brain/tennis_bot_vf/`)
+
 ## 1. Project Overview
 
 Live tennis data collection, replay, research, backtesting, and execution platform.
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** 114 Python files, 11,399 lines (excl. tests/). Updated 2026-07-10 10:53 UTC.
+**Current Status:** 148 Python files, 15,326 lines (excl. tests/). Updated 2026-07-12 13:05 UTC.
 
-**Auto-generated file stats:** 114 Python files, 11,399 lines (excl. tests/). Updated 2026-07-10 10:53 UTC.
+**Auto-generated file stats:** 148 Python files, 15,326 lines (excl. tests/). Updated 2026-07-12 13:05 UTC.
 
 - **incidents/**: 16 files, 2,590 lines
 - **verification/**: 26 files, 2,232 lines
 - **observability/**: 18 files, 1,980 lines
+- **console_api/**: 24 files, 1,901 lines
 - **collector/**: 10 files, 1,297 lines
-- **live_collector/**: 4 files, 675 lines
-- **finalizer/**: 5 files, 522 lines
-- **models/**: 9 files, 399 lines
-- **orchestrator/**: 2 files, 357 lines
+- **matcher/**: 4 files, 808 lines
+- **live_collector/**: 4 files, 789 lines
+- **repair/**: 4 files, 641 lines
+- **finalizer/**: 5 files, 524 lines
+- **models/**: 9 files, 431 lines
+- **orchestrator/**: 2 files, 427 lines
+- **reports/**: 2 files, 389 lines
+- **root/**: 6 files, 346 lines
 - **scripts/**: 6 files, 333 lines
-- **root/**: 6 files, 329 lines
 - **monitor/**: 1 files, 291 lines
-- **registry/**: 2 files, 212 lines
+- **registry/**: 2 files, 165 lines
 - **shared/**: 3 files, 152 lines
 - **backtest/**: 1 files, 5 lines
 - **dashboard/**: 1 files, 5 lines
@@ -31,28 +37,30 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 - **storage/**: 1 files, 5 lines
 ---
 
-## Recent Fixes (2026-07-10)
+## All Fixes (2026-07-06 → 2026-07-10)
 
-| Fix | Module | Impact |
-|-----|--------|--------|
-| `_word_matches` short-name false positives | `collector/betting_site/parser.py` | Words <4 chars now require word-boundary match (`" ma " in " event "`) instead of substring match (`"ma" in "maxime"` → True). Prevents "MA L.", "WU Y.", etc. from matching 3+ betting markets simultaneously. |
-| Registry: IntegrityError crash guard | `registry/service.py` | Before assigning `betting_market_id`, checks if another TrackedMatch already has it. Skips instead of crashing the entire `build_match_registry()` cycle. |
-| Registry: set `actual_finish` on FINISHED | `registry/service.py` | When registry transitions a match to FINISHED/RETIRED/WALKOVER, sets `actual_finish` timestamp. Prevents finalized matches from lacking finish time. |
-| DB: backfill `actual_finish` | Oracle VM | 81 FINISHED matches without `actual_finish` backfilled with `updated_at` value. |
-| Name matching: abbreviated Flashscore names | `collector/betting_site/parser.py` | `_extract_last_name` now handles abbreviated "LAST INITIAL" format (e.g. "DJOKOVIC N" → "djokovic" not "n"). Fixes all downstream name matching. |
-| Registry: last-name matching | `registry/service.py` | `build_match_registry()` now uses `_names_match` instead of exact tuple matching — betting markets correctly linked even when Flashscore names are abbreviated. |
-| Odds interval: 2s → 3s | `config.py`, `.env.example`, `docker-compose.yml` | Reduced polling frequency per user request |
-| Incidents: retention + stuck matches + timezone | `database.py`, `orchestrator/service.py`, `collector/flashscore/parser.py`, `live_collector/` | TimescaleDB 90-day retention policy prevents unbounded growth. Matches with `scheduled_start=NULL` expire after 24h. `_parse_time()` returns timezone-aware UTC. In-memory dicts cleaned up on match finish. |
-| Odds capture: API headers fix + parser reuse | `live_collector/betting_live.py` | Odds API now sends proper Origin/Referer headers. Pipe parsing reuses battle-tested `parse_odds_pipe`. |
-| Multi-format player name resolution | `registry/service.py` | `_find_player()` tries exact, reversed, last-name partial, and handles abbreviated names. |
-| Match duration calculation | `live_collector/flashscore_live.py` | Falls back to first score tick when `scheduled_start` is after `actual_finish` or >8h |
-| Lazy betting market matching | `live_collector/service.py` | Every 60s, re-attempts fuzzy name matching for LIVE matches without a betting market |
-| SQLAlchemy text() fix | `incidents/recovery.py` | Params passed to `execute()` instead of `text()` |
-| Monitor healthcheck | `Dockerfile.monitor` | Added `procps` package so `pgrep` works |
-| Observability wiring | `main.py`, `run_monitor.py` | `initialize_observability()` + JSON structured logging active |
-
-## Previous Fixes (2026-07-08)
-| Telegram consolidation | `shared/notify.py` | All 4 Telegram callers (notifier, finalizer, bot helpers, external monitor) delegate to single client |
+| Date | Fix | Files | Impact |
+|------|-----|-------|--------|
+| Jul 10 | `_word_matches` short-name false positives | `collector/betting_site/parser.py` | Words <4 chars now require word-boundary match (`" ma " in " event "`) instead of substring match (`"ma" in "maxime"`). Prevents "MA L.", "WU Y.", etc. from matching 3+ betting markets and crashing registry. |
+| Jul 10 | Registry: IntegrityError crash guard | `registry/service.py` | Before assigning `betting_market_id`, checks another TrackedMatch doesn't already have it. Skips instead of aborting entire `build_match_registry()` cycle. |
+| Jul 10 | Registry: set `actual_finish` on FINISHED | `registry/service.py` | When registry transitions a match to FINISHED/RETIRED/WALKOVER, records `actual_finish` timestamp. |
+| Jul 10 | DB: backfill `actual_finish` | Oracle VM | 81 FINISHED matches without `actual_finish` backfilled with `updated_at`. |
+| Jul 8 | Name matching: abbreviated Flashscore names | `collector/betting_site/parser.py` | `_extract_last_name` now handles "LAST INITIAL" format (e.g. "DJOKOVIC N" → "djokovic" not "n"). |
+| Jul 8 | Registry: last-name matching | `registry/service.py` | `build_match_registry()` uses `_names_match` instead of exact tuple matching. |
+| Jul 8 | Odds interval 2s → 3s | `config.py`, `.env.example`, `docker-compose.yml` | Per user request |
+| Jul 7 | Retention policy | `database.py` | 90-day hypertable retention for `live_scores`, `live_odds`, `system_events`. |
+| Jul 7 | Stuck DISCOVERED matches | `orchestrator/service.py` | Matches with `scheduled_start=NULL` expire after 24h → EXPIRED. |
+| Jul 7 | `_parse_time()` timezone fix | `collector/flashscore/parser.py` | Now returns timezone-aware UTC (was naive local time). |
+| Jul 7 | Dict cleanup on match finish | `live_collector/service.py` | `_score_hash`, `_odds_hash`, `_score_last_poll` pruned when match finishes. |
+| Jul 7 | Unused parameter removal | `live_collector/flashscore_live.py` | `match_id: str` → `tracked_match_id: int` in `poll_flashscore_score`. |
+| Jul 6 | Odds API headers + parser reuse | `live_collector/betting_live.py` | Origin/Referer headers matching discovery client. Pipe parsing uses battle-tested `parse_odds_pipe`. |
+| Jul 6 | Multi-format player name resolution | `registry/service.py` | `_find_player()` tries exact, reversed, last-name partial, abbreviated names. |
+| Jul 6 | Match duration calculation | `live_collector/flashscore_live.py` | Falls back to first score tick when `scheduled_start` is after `actual_finish` or >8h. |
+| Jul 6 | Lazy betting market matching | `live_collector/service.py` | Every 60s, re-attempts fuzzy name matching for LIVE matches without a betting market. |
+| Earlier | SQLAlchemy `text()` fix | `incidents/recovery.py` | Params passed to `execute()` instead of `text()`. |
+| Earlier | Monitor healthcheck | `Dockerfile.monitor` | Added `procps` for `pgrep`. |
+| Earlier | Observability wiring | `main.py`, `run_monitor.py` | `initialize_observability()` + JSON structured logging. |
+| Earlier | Telegram consolidation | `shared/notify.py` | All 4 Telegram callers delegate to single client. |
 
 ---
 
@@ -1097,11 +1105,14 @@ For bugs:
 
 | Module | May Import | May NOT Import |
 |--------|-----------|----------------|
-| `collector/*` | `models`, `shared`, `database` | `orchestrator`, `incidents`, `finalizer` |
-| `registry` | `models`, `database` | `collector`, `incidents`, `finalizer` |
+| `collector/*` | `models`, `shared`, `database` | `orchestrator`, `incidents`, `finalizer`, `matcher`, `repair` |
+| `matcher/*` | `database` (for models) | `collector`, `orchestrator`, `finalizer`, `live_collector` |
+| `repair/*` | `models`, `finalizer` | `collector`, `orchestrator`, `live_collector` |
+| `reports/*` | `models` | `collector`, `matcher`, `repair` |
+| `registry` | `models`, `matcher`, `database` | `incidents`, `finalizer` |
 | `orchestrator` | Everything | `incidents` |
 | `finalizer` | `models` | `collector`, `incidents` |
-| `live_collector` | `models`, `config` | `incidents`, `registry` |
+| `live_collector` | `models`, `matcher`, `config` | `incidents`, `registry` |
 | `incidents` | `database` | `orchestrator`, `collector` |
 | `shared` | Nothing internal | Everything else |
 | `verification/*` | `models`, `database`, `shared` | `collector`, `orchestrator`, `finalizer`, `live_collector` (read-only via DB) |
@@ -1371,3 +1382,403 @@ python -m verification.cli platform health              # Latest score
 | AI config files | 0 | 3 (.ai/) |
 | Automation scripts | 0 | 5 (scripts/) |
 | Module boundary enforcement | 0 | scripts/validate_module_boundaries.py |
+
+---
+
+## 16. Data Quality Engine (Phase 3.7+)
+
+### Market Matcher (`matcher/`)
+
+Confidence-based multi-signal matching engine replacing name-only fuzzy matching for Flashscore ↔ Betting Site assignment.
+
+**Files:**
+| File | Lines | Purpose |
+|------|-------|---------|
+| `matcher/__init__.py` | 30 | Public API exports |
+| `matcher/engine.py` | 320 | Confidence scorer, `match_market()`, `match_all()`, `continuous_retry()` |
+| `matcher/signals.py` | 350 | Individual signal extractors |
+| `matcher/models.py` | 40 | `MatchAttempt` ORM — persistent attempt log |
+
+**Signals (weighted):**
+| Signal | Weight | Description |
+|--------|--------|-------------|
+| `player_names` | 0.40 | Multi-format: exact, reversed, compound last names, initials, substring |
+| `tournament` | 0.20 | City extraction, word matching from tournament string |
+| `scheduled_time` | 0.20 | Time proximity (within 1h→4h→same day) |
+| `gender` | 0.10 | ATP/WTA/Challenger detection |
+| `competition_type` | 0.10 | Qualification vs main draw |
+
+**Confidence levels:** HIGH (≥0.70), MEDIUM (≥0.40), LOW (<0.40), REJECTED (no name match)
+
+**Every candidate receives:** confidence score, signal breakdown, matching explanation, rejection reason. Failed attempts are persisted to `match_attempts` table.
+
+**Public API:**
+| Function | Returns | Description |
+|----------|---------|-------------|
+| `match_market(player1, player2, tournament, time, events)` | `MarketMatchResult` | Score all candidates for one match |
+| `match_all(tracked_matches, bt_events)` | `list[MarketMatchResult]` | Batch match with dedup |
+| `continuous_retry(session, unmatched, bt_events)` | `int` | Periodic reassignment for unmatched matches |
+
+---
+
+### Live Collector Improvements (Parts 2–4)
+
+**State-Based Score Polling:**
+- `MatchState` dataclass tracks set/game/point/server/tiebreak/finished state
+- `changed_from(prev)` detects legitimate state transitions (set_changed, game_changed, point_changed, server_changed, match_finished)
+- State hash replaces content hash for dedup — only writes on state changes
+
+**Event-Synchronized Odds:**
+- When a score state changes (set/game/point/server), the live collector immediately captures the latest odds
+- Creates synchronized score+odds events at the same instant
+- Standard 3s polling continues as fallback
+
+**Continuous Market Reassignment:**
+- Uses `matcher.engine.continuous_retry()` instead of name-only lazy matching
+- Runs every 120s for LIVE matches without a betting market
+- Timeout: 180 minutes after scheduled start
+- Configurable via `matcher/engine.py` constants
+
+---
+
+### Data Repair Engine (`repair/`)
+
+Self-correcting repair pipeline — scans completed matches and repairs recoverable data.
+
+**Never overwrites raw data** (`live_scores`, `live_odds`). Only updates derived fields on `completed_matches`.
+
+**Files:**
+| File | Lines | Purpose |
+|------|-------|---------|
+| `repair/__init__.py` | 25 | Public API exports |
+| `repair/engine.py` | 310 | 7 repair handlers, batch processing |
+| `repair/classifier.py` | 95 | Failure classification |
+| `repair/quality.py` | 170 | Quality scoring A–F |
+
+**Repair Actions:**
+| Action | Method | What it fixes |
+|--------|--------|---------------|
+| `infer_winner` | From final set scores | Missing `winner_player_id`, `final_set_score` |
+| `recalculate_duration` | From first score tick to actual finish | Missing/invalid duration |
+| `reconstruct_timestamps` | From live_scores/live_odds | Missing first/last timestamps, collection duration |
+| `retry_market_assignment` | Retrospective matching | Missing betting_market_id |
+| `resolve_player_references` | From tracked_matches | Missing player1_id/player2_id |
+| `recompute_validation` | Rerun finalizer validation | Stale validation flags |
+| `recalculate_stats` | Rerun stats calculation | Stale tick counts, gaps |
+
+**Orchestration:**
+- `run_repairs_on_all(session, cm_list, tm_map)` → processes all completed matches
+- Runs every 30 minutes in the orchestrator loop (configurable interval)
+- In combination with `run_match_finalizer()`, forms the full post-match pipeline
+
+---
+
+### Failure Classification (`repair/classifier.py`)
+
+Every completed match that fails validation gets exactly one primary failure category:
+
+| Category | Condition |
+|----------|-----------|
+| `none_needed` | Match passed validation |
+| `walkover` / `retirement` / `match_cancelled` | Detected from tournament string |
+| `collector_never_started` | Zero score AND zero odds ticks |
+| `score_parsing_failed` | 1–2 score ticks (parser couldn't read page) |
+| `market_assignment_failed` | Scores present, no odds, no market ID |
+| `odds_parsing_failed` | Scores present, no odds, has market ID |
+| `collector_started_late` | Some data collected but incomplete |
+| `database_write_failed` | Data collected but not persisted |
+| `flashscore_unavailable` / `betting_site_unavailable` | Source was down |
+| `unknown` | Rare edge cases |
+
+Stored in `completed_matches.failure_category` column.
+
+---
+
+### Quality Scoring (`repair/quality.py`)
+
+A–F grade computed from 5 weighted factors:
+
+| Factor | Weight | Basis |
+|--------|--------|-------|
+| Score completeness | 0.25 | Unique states vs expected, or tick count tiers |
+| Odds completeness | 0.25 | Tick count tiers (200+/100+/50+/10+) |
+| Timeline completeness | 0.15 | Deductions for missing start/finish/duration timestamps |
+| Synchronization | 0.20 | Odds-at-score coverage % |
+| Validation | 0.15 | 100 if passed, 50 if partial, 0 if no data |
+
+| Grade | Range |
+|-------|-------|
+| A | 90+ |
+| B | 75–89 |
+| C | 50–74 |
+| D | 25–49 |
+| F | 0–24 |
+
+Stored in `completed_matches.quality_grade` and `.quality_score`.
+
+---
+
+### Reports (`reports/`)
+
+Report generation for data quality monitoring:
+
+| Report | Key metrics |
+|--------|-------------|
+| `MarketMatchingReport` | % with market, by confidence level, top rejection reasons |
+| `OddsCoverageReport` | Coverage %, avg ticks, by tournament |
+| `CollectionReport` | Score/odds averages, validation pass %, by day |
+| `RepairReport` | Repaired vs unchanged, fixes by action type |
+| `FailureDistributionReport` | Failure categories, unknown count |
+| `DatasetQualityReport` | A–F distribution, avg quality score |
+| `ReplayReadinessReport` | % ready, list of top-quality replay candidates |
+
+Generated via `reports.generate_all_reports(session)`.
+
+---
+
+### Database Schema Additions
+
+**`completed_matches` — new columns:**
+| Column | Type | Purpose |
+|--------|------|---------|
+| `score_completeness_pct` | FLOAT | Score data completeness % |
+| `odds_completeness_pct` | FLOAT | Odds data completeness % |
+| `timeline_completeness_pct` | FLOAT | Timeline completeness % |
+| `synchronization_score` | FLOAT | How well odds align with score events |
+| `quality_grade` | VARCHAR(2) | A/B/C/D/F grade |
+| `quality_score` | FLOAT | 0–100 weighted quality score |
+| `failure_category` | VARCHAR(64) | Primary failure category |
+| `failure_reason` | VARCHAR(1024) | Detailed failure explanation |
+| `market_assigned_at` | TIMESTAMPTZ | When market was assigned |
+| `collector_started_at` | TIMESTAMPTZ | When first data was collected |
+| `collector_finished_at` | TIMESTAMPTZ | When collector detected finish |
+| `repair_actions` | VARCHAR(1024) | Which repairs were applied |
+| `repair_count` | INTEGER | How many times repaired |
+| `last_repaired_at` | TIMESTAMPTZ | Last repair timestamp |
+
+**`tracked_matches` — new columns:**
+| Column | Type | Purpose |
+|--------|------|---------|
+| `market_assigned_at` | TIMESTAMPTZ | When market was matched |
+| `collection_started_at` | TIMESTAMPTZ | When live polling began |
+
+**New table: `match_attempts`**
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | INT PK | Auto-increment |
+| `flashscore_match_id` | VARCHAR(32) | Which Flashscore match |
+| `betting_market_id` | VARCHAR(64) | Candidate market ID |
+| `player1_name`, `player2_name` | VARCHAR(255) | Match players |
+| `tournament` | VARCHAR(255) | Tournament name |
+| `confidence_score` | FLOAT | 0.0–1.0 confidence |
+| `confidence_level` | VARCHAR(16) | HIGH/MEDIUM/LOW/REJECTED |
+| `signal_scores` | JSON | Per-signal score breakdown |
+| `signal_reasons` | JSON | Per-signal explanation |
+| `selected` | BOOLEAN | Was this candidate chosen |
+| `rejected` | BOOLEAN | Was this candidate rejected |
+| `rejection_reason` | VARCHAR(512) | Why rejected |
+| `created_at` | TIMESTAMPTZ | When attempt was made |
+
+---
+
+## 17. Historical Reprocessing
+
+After deployment, the repair engine automatically processes all existing completed matches:
+1. Loads all `completed_matches` + `tracked_matches`
+2. Runs all 7 repair actions on each
+3. Classifies failure for each non-passing match
+4. Computes A–F quality grade for every match
+5. Generates before/after statistics via logs
+6. Re-runs every 30 minutes to catch newly finalized matches
+
+No recollection required. All repairs are idempotent and logged.
+
+---
+
+## 18. Developer Console (Phase 4)
+
+### Overview
+
+Internal engineering console for debugging, analyzing, inspecting, monitoring, validating, verifying, and improving every part of the platform. A developer should never need to SSH into the server, inspect database tables manually, or search log files to understand what happened.
+
+### Architecture
+
+```
+┌──────────────────────────────┐     ┌───────────────────────────────┐
+│  console/ (Next.js 14)       │────▶│  console_api/ (FastAPI)       │
+│  Port 3000                   │     │  Port 8000                    │
+│                              │     │                               │
+│  TypeScript                  │     │  Python 3.12                  │
+│  TailwindCSS                 │     │  38 REST endpoints            │
+│  shadcn/ui components        │     │  WebSocket /ws/live           │
+│  TanStack Query              │     │  Read-only TimescaleDB access │
+│  AG Grid                     │     │                               │
+│  React Flow                  │     │  Docker container             │
+│  Recharts                    │     │  restart: always              │
+└──────────────────────────────┘     └───────────────┬───────────────┘
+                                                     │
+                                              ┌──────▼──────┐
+                                              │ TimescaleDB │
+                                              │  (PostgreSQL 16)        │
+                                              └─────────────┘
+```
+
+### Backend: `console_api/`
+
+FastAPI service with 38 REST endpoints + WebSocket for live updates.
+
+**Files:**
+| File | Purpose |
+|------|---------|
+| `console_api/main.py` | FastAPI app, CORS, lifespan, route registration |
+| `console_api/deps.py` | DB session, pagination, time range dependencies |
+| `console_api/models.py` | Pydantic response models (PlatformOverview, MatchDetail, etc.) |
+| `console_api/ws.py` | WebSocket endpoint `/ws/live` with broadcast support |
+| `console_api/routers/` | 18 route modules (1 per module) |
+
+**Route Modules:**
+| Module | Endpoints | Purpose |
+|--------|-----------|---------|
+| `overview` | `/api/overview` | Platform health, counts, percentages |
+| `matches` | `/api/matches`, `/api/matches/live`, `/api/matches/{id}`, `/api/matches/{id}/scores`, `/api/matches/{id}/odds`, `/api/matches/{id}/timeline` | Match CRUD, scores, odds, timeline |
+| `collectors` | `/api/collectors` | Collector statuses |
+| `matching` | `/api/matching/summary`, `/api/matching/attempts`, `/api/matching/unmatched` | Market matching stats |
+| `discovery` | `/api/discovery/summary`, `/api/discovery/runs` | Discovery cycles |
+| `registry` | `/api/registry/summary`, `/api/registry/players` | Registry stats |
+| `database` | `/api/db/tables`, `/api/db/table/{name}` | DB table browser |
+| `quality` | `/api/quality/distribution`, `/api/quality/failures` | Quality grades |
+| `validation` | `/api/validation/summary` | Validation pass/fail |
+| `verification` | `/api/verification/health-score-history` | Verification history |
+| `observability` | `/api/observability/health`, `/api/observability/metrics` | Service health |
+| `pipeline` | `/api/pipeline/status` | Pipeline stage status |
+| `incidents` | `/api/incidents`, `/api/incidents/{id}` | Incident management |
+| `repair` | `/api/repairs/summary`, `/api/repairs/history` | Repair history |
+| `reports` | `/api/reports/all`, `/api/reports/{name}` | All 6 report types |
+| `analytics` | `/api/analytics/trends` | Daily trend data |
+| `search` | `/api/search?q=` | Global search |
+| `timeline` | `/api/timeline` | System events timeline |
+
+### Frontend: `console/`
+
+Next.js 14 App Router with TypeScript, TailwindCSS, and custom component library.
+
+**Navigation Sections:**
+| Section | Pages |
+|---------|-------|
+| Monitor | Overview, Live Matches, Match Explorer, Collectors |
+| Pipeline | Market Matching, Discovery, Registry, Database |
+| Quality | Dataset Quality, Validation, Verification, Reports |
+| Observability | Observability, Pipeline, Incidents, Repair |
+| Tools | Analytics, Global Search, Timeline, Logs |
+
+**Key Components:**
+| Component | Type | Description |
+|-----------|------|-------------|
+| `Sidebar` | Layout | 280px fixed sidebar, 5 sections, 19 nav links |
+| `StatCard` | Layout | Metric card with value, trend, icon, color |
+| `DataTable` | Data | AG Grid wrapper — dark theme, pagination, sorting |
+| `MatchCard` | Data | Live match card with scores, odds, quality |
+| `ScoreTimeline` | Chart | Recharts line chart for game score progression |
+| `Button` | UI | 4 variants, 3 sizes |
+| `Card` | UI | Card with header, content, footer |
+| `Badge` | UI | 5 severity/status variants |
+| `Input` | UI | Styled text input |
+| `Select` | UI | Styled select dropdown |
+| `Tabs` | UI | Controlled/uncontrolled tabs |
+
+**Shared Libraries:**
+| File | Purpose |
+|------|---------|
+| `lib/api.ts` | 27 typed API functions + all TypeScript interfaces |
+| `lib/websocket.ts` | WebSocket client with auto-reconnect |
+| `lib/utils.ts` | cn(), formatDate(), statusColor(), qualityColor(), etc. |
+
+### Deployment
+
+The console_api runs as a separate Docker container:
+- **Image:** `Dockerfile.console_api` (Python 3.12-slim + FastAPI + uvicorn)
+- **Port:** 8000 (exposed on host)
+- **Healthcheck:** DB connectivity check every 30s
+- **Restart:** always
+
+The console frontend builds to static files served by Next.js (port 3000) — can be deployed via Vercel, nginx, or the Oracle VM directly.
+
+### Key Pages
+
+**Dashboard (`/`):** 8 StatCards (total matches, live matches, quality score, incidents, score/odds ticks, validation %, replay %), quality distribution bars, live match previews.
+
+**Live Matches (`/matches/live`):** 5s auto-refreshing grid of MatchCards with scores and odds.
+
+**Match Explorer (`/matches/[id]`):** 8-tab comprehensive view — Overview, Scores, Odds, Timeline (chart), Completed (validation, quality), Incidents, Match Attempts, Repairs. Every piece of data about a single match.
+
+**Database Explorer (`/database`):** Browse tables, click to view rows.
+
+**Pipeline Explorer (`/pipeline`):** Vertical stepper showing Discovery → Registry → Matching → Collectors → DB → Finalizer → Repair → Completed.
+
+**Incident Manager (`/incidents`):** DataTable with modal detail view.
+
+**Reports (`/reports`):** All 6 report types as cards with key stats.
+
+### Cross-Linking
+
+Every object links to related objects:
+- Match → Incidents → Repair → Match Attempts → Database rows
+- Incident → Related Match → Pipeline stage → Collector status
+- No dead ends — every page connects to related data.
+
+---
+
+## 18. Developer Console (Next.js 14)
+
+A FastAPI-powered web console at `console/` for monitoring, exploring, and debugging the platform.
+
+**Stack:** Next.js 14, React 18, TanStack Query 5, TypeScript, Tailwind CSS, AG Grid, Recharts
+
+### Page inventory (21 pages)
+
+| # | Route | Page | API dependency |
+|---|-------|------|---------------|
+| 1 | `/` | Dashboard / Overview | `api.overview()`, `api.liveMatches()` |
+| 2 | `/matches` | Match Explorer | `api.searchMatches(params)` |
+| 3 | `/matches/live` | Live Matches | `api.liveMatches()` (5s poll) |
+| 4 | `/matches/[id]` | Match Detail | `api.matchDetail(id)`, `api.matchScores(id)`, `api.matchOdds(id)` |
+| 5 | `/collectors` | Collector Explorer | `api.collectors()` (10s poll) |
+| 6 | `/matching` | Market Matching | `api.matchingSummary()`, `api.matchingUnmatched()`, `api.matchingAttempts(params)` |
+| 7 | `/discovery` | Discovery Explorer | `api.discoverySummary()` |
+| 8 | `/registry` | Registry Explorer | `api.registrySummary()` |
+| 9 | `/database` | Database Explorer | `api.dbTables()`, `api.dbTable(name)` |
+| 10 | `/quality` | Dataset Quality | `api.qualityDistribution()`, `api.qualityFailures()` |
+| 11 | `/validation` | Validation Explorer | `api.validationSummary()` |
+| 12 | `/verification` | Verification Explorer | `api.verificationHistory()` |
+| 13 | `/observability` | Observability | `api.observabilityHealth()` |
+| 14 | `/pipeline` | Pipeline Stages | `api.pipelineStatus()` |
+| 15 | `/incidents` | Incident Manager | `api.incidents(params)` |
+| 16 | `/repair` | Repair Explorer | `api.repairsSummary()` |
+| 17 | `/reports` | Reports | `api.reports()` |
+| 18 | `/analytics` | Analytics | `api.analyticsTrends()` |
+| 19 | `/search` | Global Search | `api.search(q)` |
+| 20 | `/timeline` | Global Timeline | `api.timeline()` |
+| 21 | `/logs` | System Logs | `api.timeline()` with filters |
+
+### Component library
+
+| Component | Path | Purpose |
+|-----------|------|---------|
+| `StatCard` | `components/layout/StatCard.tsx` | Metric display with trend indicator |
+| `Sidebar` | `components/layout/Sidebar.tsx` | 5-section navigation |
+| `DataTable` | `components/data/DataTable.tsx` | AG Grid wrapper for tabular data |
+| `MatchCard` | `components/data/MatchCard.tsx` | Compact match card with live scores |
+| `ScoreTimeline` | `components/charts/ScoreTimeline.tsx` | Recharts line chart for game scores |
+| `Button`, `Badge`, `Card`, `Input`, `Select`, `Tabs` | `components/ui/` | Primitive UI components |
+
+### API layer (`lib/api.ts`)
+
+All API calls go through `fetchAPI<T>(path, params)` which targets `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`). Returns typed interfaces matching the backend models.
+
+### Patterns
+
+- Every page starts with `"use client"` and uses TanStack Query `useQuery`
+- Loading states shown as "Loading..." text; empty states shown as "No data" message
+- Auto-polling via `refetchInterval` for live/batch pages
+- Static navigation via `next/link`; programmatic routing via `useRouter().push()`
+- Dark theme: slate-950 background, slate-800 borders, emerald accent
