@@ -10,6 +10,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
 
 from console_api.deps import get_settings
 from console_api.ws import router as ws_router
@@ -80,6 +83,33 @@ app.include_router(reports.router, prefix="/api", tags=["Reports"])
 app.include_router(analytics.router, prefix="/api", tags=["Analytics"])
 app.include_router(search.router, prefix="/api", tags=["Search"])
 app.include_router(timeline.router, prefix="/api", tags=["Timeline"])
+
+CONSOLE_DIR = os.environ.get("CONSOLE_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "console", ".next"))
+STATIC_DIR = os.path.join(CONSOLE_DIR, "static") if os.path.isdir(CONSOLE_DIR) else None
+
+if STATIC_DIR and os.path.isdir(STATIC_DIR):
+    app.mount("/_next/static", StaticFiles(directory=STATIC_DIR), name="next_static")
+    app.mount("/_next", StaticFiles(directory=CONSOLE_DIR), name="next")
+
+
+@app.get("/{full_path:path}")
+async def serve_console(full_path: str):
+    if full_path.startswith("api/") or full_path.startswith("ws/") or full_path.startswith("health"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+
+    if STATIC_DIR and os.path.isdir(CONSOLE_DIR):
+        import glob
+        html_files = sorted(glob.glob(os.path.join(CONSOLE_DIR, "server", "app", "*.html")))
+        for entry in html_files:
+            if os.path.basename(entry) in ("index.html", f"{full_path}.html", f"{full_path.split('/')[-1]}.html"):
+                return FileResponse(entry)
+        index_path = os.path.join(CONSOLE_DIR, "server", "app", "index.html")
+        if os.path.isfile(index_path):
+            return FileResponse(index_path)
+
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"detail": "Console not built yet"}, status_code=503)
 
 
 @app.get("/health")

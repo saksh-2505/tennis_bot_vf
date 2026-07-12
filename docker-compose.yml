@@ -89,8 +89,11 @@ services:
       DATABASE_URL: "postgresql+psycopg2://tennis:${DB_PASSWORD}@timescaledb:5432/tennis_bot"
       LOG_LEVEL: "INFO"
       LOG_FORMAT: "text"
+      CONSOLE_DIR: "/console"
     ports:
       - "8000:8000"
+    volumes:
+      - ~/console/.next:/console
     restart: always
     healthcheck:
       test: ["CMD", "python", "-c", "from database import check_connection; exit(0) if check_connection() else exit(1)"]
