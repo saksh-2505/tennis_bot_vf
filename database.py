@@ -62,6 +62,7 @@ def _run_migrations(conn):
         "ALTER TABLE completed_matches ADD COLUMN IF NOT EXISTS last_repaired_at TIMESTAMPTZ",
         "ALTER TABLE tracked_matches ADD COLUMN IF NOT EXISTS market_assigned_at TIMESTAMPTZ",
         "ALTER TABLE tracked_matches ADD COLUMN IF NOT EXISTS collection_started_at TIMESTAMPTZ",
+        "ALTER TABLE live_scores ADD COLUMN IF NOT EXISTS source VARCHAR(16) DEFAULT 'polled'",
     ]
     for sql in migrations:
         try:
@@ -77,12 +78,13 @@ def init_db() -> None:
     """
     from models.completed_match import CompletedMatch
     from models.live_odds import LiveOdds
+    from models.live_point import LivePoint
     from models.live_score import LiveScore
     from models.system_event import SystemEvent
     from models.tracked_match import TrackedMatch
     from matcher.models import MatchAttempt
 
-    models = [CompletedMatch, LiveScore, LiveOdds, SystemEvent, TrackedMatch, MatchAttempt]
+    models = [CompletedMatch, LiveScore, LiveOdds, LivePoint, SystemEvent, TrackedMatch, MatchAttempt]
     for m in models:
         m.metadata.create_all(bind=engine)
 
@@ -110,6 +112,13 @@ def init_db() -> None:
             ")"
         ))
         conn.execute(text(
+            "SELECT create_hypertable("
+            "'live_points', 'timestamp',"
+            " chunk_time_interval => INTERVAL '1 day',"
+            " if_not_exists => TRUE"
+            ")"
+        ))
+        conn.execute(text(
             "ALTER TABLE live_scores SET ("
             "  timescaledb.compress,"
             "  timescaledb.compress_segmentby = 'tracked_match_id'"
@@ -126,9 +135,15 @@ def init_db() -> None:
             "  timescaledb.compress"
             ")"
         ))
+        conn.execute(text(
+            "ALTER TABLE live_points SET ("
+            "  timescaledb.compress,"
+            "  timescaledb.compress_segmentby = 'tracked_match_id'"
+            ")"
+        ))
         conn.commit()
 
-        for tbl in ("live_scores", "live_odds", "system_events"):
+        for tbl in ("live_scores", "live_odds", "system_events", "live_points"):
             try:
                 conn.execute(text(
                     f"SELECT add_compression_policy("

@@ -1,9 +1,17 @@
-"""Live Flashscore score scraper for a single match."""
+"""Live Flashscore score scraper for a single match.
+
+Parses Flashscore mobile match page to extract set scores, current game
+scores, per-set breakdown of completed game scores, and match status.
+
+On every poll, extracts the complete game-level score history from the
+detail-tab-content section, enabling reconstruction of all intermediate
+game states even if previous polls missed them.
+"""
 import hashlib
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import httpx
@@ -31,6 +39,13 @@ FINISHED_KEYWORDS = {"FINISHED", "RETIRED", "WALKOVER", "CANCELLED", "ABANDONED"
 
 
 @dataclass
+class GameState:
+    set_number: int
+    game_a: int
+    game_b: int
+
+
+@dataclass
 class ScoreSnapshot:
     set_score_a: int | None = None
     set_score_b: int | None = None
@@ -40,6 +55,8 @@ class ScoreSnapshot:
     server: str | None = None
     is_tiebreak: bool = False
     match_finished: bool = False
+    per_set_games: list[GameState] = field(default_factory=list)
+    source: str = "polled"
 
     def content_hash(self) -> str:
         payload = json.dumps(
@@ -58,8 +75,46 @@ class ScoreSnapshot:
         return hashlib.sha256(payload.encode()).hexdigest()
 
 
+def _detect_gaps(
+    previous: str | None,
+    current_a: int, current_b: int,
+) -> list[tuple[int, int]]:
+    """Detect and interpolate missing intermediate game score states.
+
+    If game changes from 2-2 to 5-2, the intermediate states are
+    [(3,2), (4,2)].  Returns the list of interpolated (game_a, game_b)
+    tuples in chronological order, excluding the current state.
+    """
+    if previous is None:
+        return []
+
+    try:
+        prev_a, prev_b = map(int, previous.split("-"))
+    except (ValueError, AttributeError):
+        return []
+
+    diff_a = current_a - prev_a
+    diff_b = current_b - prev_b
+
+    if diff_a == 0 and diff_b == 0:
+        return []
+    if diff_a < 0 or diff_b < 0:
+        return []
+
+    if diff_a <= 1 and diff_b <= 1:
+        return []
+
+    interpolated: list[tuple[int, int]] = []
+    for step in range(1, max(diff_a, diff_b)):
+        ia = prev_a + min(step, diff_a)
+        ib = prev_b + min(step, diff_b)
+        if (ia, ib) != (current_a, current_b):
+            interpolated.append((ia, ib))
+
+    return interpolated
+
+
 def poll_flashscore_score(tracked_match_id: int, flashscore_match_id: str) -> ScoreSnapshot:
-    """Fetch the Flashscore mobile match page and extract the current score state."""
     url = MOBILE_MATCH_URL.format(match_id=flashscore_match_id)
     try:
         with httpx.Client(
@@ -82,19 +137,6 @@ def poll_flashscore_score(tracked_match_id: int, flashscore_match_id: str) -> Sc
 
 
 def _parse_live_score(html: str) -> ScoreSnapshot:
-    """Parse Flashscore mobile match page into ScoreSnapshot.
-
-    Flashscore.mobi returns static HTML with scores directly embedded.
-    The structure for a match page is:
-
-        <h3>Player1 (Ctry) - Player2 (Ctry)</h3>
-        <div class="detail"><b>2-1</b>  (6-7,7-5,6-3)</div>
-        <div class="detail">Finished</div>  ← or live status
-        <div class="detail">28.06.2026 18:30</div>
-
-    For live in-progress matches the format is the same but without
-    ``Finished`` and set/game scores reflect current state.
-    """
     soup = BeautifulSoup(html, "html.parser")
     snap = ScoreSnapshot()
 
@@ -102,7 +144,7 @@ def _parse_live_score(html: str) -> ScoreSnapshot:
     if not details:
         return snap
 
-    # -- detail[0]: set score + game scores -------------------------------
+    # -- detail[0]: set score + current game scores ------------------------
     first = details[0]
     b_tag = first.find("b")
     if b_tag:
@@ -115,8 +157,6 @@ def _parse_live_score(html: str) -> ScoreSnapshot:
             except ValueError:
                 pass
 
-        # Game scores follow the <b> tag in parentheses
-        # e.g. (6-7,7-5,6-3)
         full_text = first.get_text(strip=True)
         game_m = re.search(r"\(([^)]+)\)", full_text)
         if game_m:
@@ -131,65 +171,49 @@ def _parse_live_score(html: str) -> ScoreSnapshot:
                     except ValueError:
                         pass
 
-    # -- detail[1]: match status ------------------------------------------
+    # -- detail[1]: match status -------------------------------------------
     if len(details) >= 2:
         status_text = details[1].get_text(strip=True).upper()
         if any(kw in status_text for kw in FINISHED_KEYWORDS):
             snap.match_finished = True
-        elif "LIVE" in status_text or "IN PLAY" in status_text:
-            pass  # match is live, keep going
 
-    # -- detail[2]: date/time (not used currently) ------------------------
-
-    # -- point score from title if available -----------------------------
-    title = soup.find("title")
-    if title:
-        title_text = title.get_text(strip=True)
-        pt_m = re.search(r"(\d+)\s*[-:]\s*(\d+)(?:\s|$)", title_text)
-        if pt_m and snap.game_score_a is None and snap.game_score_b is None:
-            try:
-                snap.game_score_a = int(pt_m.group(1))
-                snap.game_score_b = int(pt_m.group(2))
-            except ValueError:
-                pass
-
-    # -- Parse per-set game scores from detail-tab-content ----------------
+    # -- Parse per-set game scores from detail-tab-content ------------------
     tab = soup.find(id="detail-tab-content")
     if tab:
         set_games_a: list[int] = []
         set_games_b: list[int] = []
         for h4 in tab.find_all("h4"):
             text = h4.get_text(strip=True)
-            set_m = re.search(r"Set\s+\d+:\s*(\d+)\s*[-:]\s*(\d+)", text, re.IGNORECASE)
+            set_m = re.search(
+                r"Set\s+(\d+)\s*[-:]\s*(\d+)\s*[-:]\s*(\d+)",
+                text, re.IGNORECASE,
+            )
+            if not set_m:
+                set_m = re.search(
+                    r"Set\s+(\d+):\s*(\d+)\s*[-:]\s*(\d+)",
+                    text, re.IGNORECASE,
+                )
             if set_m:
                 try:
-                    set_games_a.append(int(set_m.group(1)))
-                    set_games_b.append(int(set_m.group(2)))
+                    set_num = int(set_m.group(1))
+                    ga = int(set_m.group(2))
+                    gb = int(set_m.group(3))
+                    set_games_a.append(ga)
+                    set_games_b.append(gb)
+                    snap.per_set_games.append(GameState(set_num, ga, gb))
                 except ValueError:
                     pass
 
-        # Only set set_score from detail-tab-content if <b> tag parsing
-        # failed (it's more reliable when available)
         if snap.set_score_a is None and set_games_a:
             wins_a = sum(1 for ga, gb in zip(set_games_a, set_games_b) if ga > gb)
             wins_b = sum(1 for ga, gb in zip(set_games_a, set_games_b) if gb > ga)
             snap.set_score_a = wins_a
             snap.set_score_b = wins_b
 
-        # Use game scores from the last completed set as current game score
-        if snap.game_score_a is None and set_games_a:
-            snap.game_score_a = set_games_a[-1]
-            snap.game_score_b = set_games_b[-1]
-
     return snap
 
 
 def mark_match_finished(tracked_match_id: int) -> None:
-    """Update tracked_matches with FINISHED status and calculate duration.
-
-    Duration is computed as actual_finish - first_score_tick (precise start).
-    Falls back to scheduled_start only when no score ticks exist.
-    """
     import database as db
     from sqlalchemy import text
     from models.tracked_match import TrackedMatch
@@ -206,7 +230,6 @@ def mark_match_finished(tracked_match_id: int) -> None:
 
         delta = None
 
-        # Primary: use first score tick as actual match start
         try:
             row = session.execute(text(
                 "SELECT min(timestamp) FROM live_scores "
@@ -221,7 +244,6 @@ def mark_match_finished(tracked_match_id: int) -> None:
         except Exception:
             pass
 
-        # Fallback: scheduled_start (only if no score ticks exist)
         if delta is None or delta.total_seconds() < 0:
             start = tm.scheduled_start
             if start is not None and start.tzinfo is None:

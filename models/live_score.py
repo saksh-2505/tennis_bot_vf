@@ -26,6 +26,7 @@ class LiveScore(Base):
     server: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_tiebreak: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     match_finished: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    source: Mapped[str | None] = mapped_column(String(16), nullable=True, default="polled")
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
     __table_args__ = (

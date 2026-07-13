@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # In-memory dedup caches — cleared on restart, DB constraint catches restarts.
 _score_hash: dict[int, str] = {}
 _odds_hash: dict[int, str] = {}
+_point_hash: dict[int, str] = {}
 _collection_active: bool = False
 
 # Heartbeat: updated every tick so the incident monitor can detect
@@ -106,6 +107,8 @@ class MatchState:
 
 
 _score_state: dict[int, MatchState] = {}
+_score_game_key: dict[int, str] = {}
+_set_hash: dict[tuple[int, int], str] = {}
 
 
 def get_heartbeat() -> float:
@@ -242,9 +245,9 @@ def _try_lazy_betting_match(session, live_matches: list) -> None:
 async def _collect_tick(matches: list[dict]) -> None:
     """Poll all live matches concurrently, batch-insert new ticks.
 
-    Scores are polled every 10 s (throttled per match).  Odds are polled
-    every 2 s.  Both are hash-deduplicated — only changed data is
-    inserted.
+    Scores are polled every 5 s (throttled per match).  Odds are polled
+    every 3 s.  Both are hash-deduplicated — only changed data is
+    inserted.  Gap detection interpolates missed game states.
     """
     score_batch: list[dict] = []
     odds_batch: list[dict] = []
@@ -252,12 +255,13 @@ async def _collect_tick(matches: list[dict]) -> None:
     async def _handle_one(m: dict) -> None:
         mid = m["id"]
 
-        # -- scores (every 10 s) ------------------------------------------
+        # -- scores (every 5 s) ------------------------------------------
         if _score_due(mid):
             from live_collector.flashscore_live import (
                 ScoreSnapshot,
                 mark_match_finished,
                 poll_flashscore_score,
+                _detect_gaps,
             )
 
             snap: ScoreSnapshot = await asyncio.to_thread(
@@ -272,11 +276,13 @@ async def _collect_tick(matches: list[dict]) -> None:
             if h != _score_hash.get(mid):
                 _score_hash[mid] = h
                 _score_state[mid] = new_state
+                now_ts = datetime.now(timezone.utc)
 
+                # Primary tick: actual polled state
                 score_batch.append({
                     "tracked_match_id": mid,
                     "flashscore_match_id": m["flashscore_match_id"],
-                    "timestamp": datetime.now(timezone.utc),
+                    "timestamp": now_ts,
                     "set_score_a": snap.set_score_a,
                     "set_score_b": snap.set_score_b,
                     "game_score_a": snap.game_score_a,
@@ -285,8 +291,74 @@ async def _collect_tick(matches: list[dict]) -> None:
                     "server": snap.server,
                     "is_tiebreak": snap.is_tiebreak,
                     "match_finished": snap.match_finished,
+                    "source": "polled",
                     "content_hash": h,
                 })
+
+                # Gap detection: interpolate missed game states
+                _prev_game_key = _score_game_key.get(mid)
+                if snap.game_score_a is not None and snap.game_score_b is not None:
+                    current_key = "{}-{}".format(snap.game_score_a, snap.game_score_b)
+                    gaps = _detect_gaps(
+                        _prev_game_key,
+                        snap.game_score_a,
+                        snap.game_score_b,
+                    )
+                    for ga, gb in gaps:
+                        gap_hash = hashlib.sha256(
+                            json.dumps({
+                                "sa": snap.set_score_a,
+                                "sb": snap.set_score_b,
+                                "ga": ga, "gb": gb,
+                            }, sort_keys=True).encode()
+                        ).hexdigest()
+                        score_batch.append({
+                            "tracked_match_id": mid,
+                            "flashscore_match_id": m["flashscore_match_id"],
+                            "timestamp": now_ts,
+                            "set_score_a": snap.set_score_a,
+                            "set_score_b": snap.set_score_b,
+                            "game_score_a": ga,
+                            "game_score_b": gb,
+                            "point_score": None,
+                            "server": None,
+                            "is_tiebreak": snap.is_tiebreak,
+                            "match_finished": False,
+                            "source": "interpolated",
+                            "content_hash": gap_hash,
+                        })
+                    _score_game_key[mid] = current_key
+
+                # Per-set game history: store completed set scores
+                for gs in snap.per_set_games:
+                    if gs.set_number > 0 and (
+                        snap.set_score_a is not None
+                        and snap.set_score_b is not None
+                    ):
+                        set_hash = hashlib.sha256(
+                            json.dumps({
+                                "set": gs.set_number,
+                                "ga": gs.game_a,
+                                "gb": gs.game_b,
+                            }, sort_keys=True).encode()
+                        ).hexdigest()
+                        if set_hash != _set_hash.get((mid, gs.set_number)):
+                            _set_hash[(mid, gs.set_number)] = set_hash
+                            score_batch.append({
+                                "tracked_match_id": mid,
+                                "flashscore_match_id": m["flashscore_match_id"],
+                                "timestamp": now_ts,
+                                "set_score_a": gs.set_number,
+                                "set_score_b": None,
+                                "game_score_a": gs.game_a,
+                                "game_score_b": gs.game_b,
+                                "point_score": None,
+                                "server": None,
+                                "is_tiebreak": False,
+                                "match_finished": False,
+                                "source": "set_history",
+                                "content_hash": set_hash,
+                            })
 
                 if changes:
                     logger.debug(
@@ -310,7 +382,7 @@ async def _collect_tick(matches: list[dict]) -> None:
                             odds_batch.append({
                                 "tracked_match_id": mid,
                                 "betting_market_id": bmid,
-                                "timestamp": datetime.now(timezone.utc),
+                                "timestamp": now_ts,
                                 "back_odds_a": odds_snap.back_odds_a,
                                 "back_odds_b": odds_snap.back_odds_b,
                                 "lay_odds_a": odds_snap.lay_odds_a,
@@ -350,6 +422,37 @@ async def _collect_tick(matches: list[dict]) -> None:
                         "content_hash": h,
                     })
 
+        # -- points (every 3 s, only for matched markets) -----------------
+        bmid = m.get("betting_market_id")
+        if bmid and _point_due(mid):
+            from live_collector.points_live import PointSnapshot, poll_point_state
+
+            pt_snap: PointSnapshot = await asyncio.to_thread(
+                poll_point_state, mid, m["flashscore_match_id"],
+            )
+            if pt_snap.valid:
+                ph = pt_snap.content_hash()
+                if ph != _point_hash.get(mid):
+                    _point_hash[mid] = ph
+                    point_batch.append({
+                        "tracked_match_id": mid,
+                        "flashscore_match_id": m["flashscore_match_id"],
+                        "timestamp": datetime.now(timezone.utc),
+                        "set_number": pt_snap.set_number,
+                        "game_number": pt_snap.game_number,
+                        "point_a": pt_snap.point_a,
+                        "point_b": pt_snap.point_b,
+                        "point_string": pt_snap.point_string,
+                        "server_name": pt_snap.server_name,
+                        "is_break_point": pt_snap.is_break_point,
+                        "is_set_point": pt_snap.is_set_point,
+                        "is_match_point": pt_snap.is_match_point,
+                        "is_tiebreak": pt_snap.is_tiebreak,
+                        "content_hash": ph,
+                    })
+
+    point_batch: list[dict] = []
+
     await asyncio.gather(*(_handle_one(m) for m in matches))
 
     if score_batch:
@@ -360,6 +463,10 @@ async def _collect_tick(matches: list[dict]) -> None:
         _bulk_insert("live_odds", odds_batch)
         logger.info("Inserted %d odds ticks for %d matches",
                      len(odds_batch), len({r["tracked_match_id"] for r in odds_batch}))
+    if point_batch:
+        _bulk_insert("live_points", point_batch)
+        logger.info("Inserted %d point ticks for %d matches",
+                     len(point_batch), len({r["tracked_match_id"] for r in point_batch}))
 
 
 # ---- score throttling ---------------------------------------------------
@@ -377,12 +484,33 @@ def _score_due(match_id: int) -> bool:
     return False
 
 
+# ---- point throttling ----------------------------------------------------
+
+_point_last_poll: dict[int, float] = {}
+_POINT_INTERVAL = 3.0
+
+
+def _point_due(match_id: int) -> bool:
+    now = time.monotonic()
+    last = _point_last_poll.get(match_id, 0)
+    if now - last >= _POINT_INTERVAL:
+        _point_last_poll[match_id] = now
+        return True
+    return False
+
+
 def _cleanup_match(match_id: int) -> None:
     """Remove in-memory dedup/state entries for a finished match."""
     _score_hash.pop(match_id, None)
     _odds_hash.pop(match_id, None)
+    _point_hash.pop(match_id, None)
     _score_last_poll.pop(match_id, None)
+    _point_last_poll.pop(match_id, None)
     _score_state.pop(match_id, None)
+    _score_game_key.pop(match_id, None)
+    for k in list(_set_hash.keys()):
+        if k[0] == match_id:
+            _set_hash.pop(k, None)
 
 
 # ---- heartbeat -----------------------------------------------------------

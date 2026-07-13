@@ -183,6 +183,38 @@ def get_match_timeline(match_id: int, db: Session = Depends(get_db)):
     return events
 
 
+@router.get("/matches/{match_id}/points")
+def get_match_points(match_id: int, db: Session = Depends(get_db)):
+    try:
+        from models.live_point import LivePoint
+
+        rows = (
+            db.query(LivePoint)
+            .filter(LivePoint.tracked_match_id == match_id)
+            .order_by(LivePoint.timestamp.asc())
+            .limit(1000)
+            .all()
+        )
+        return [
+            {
+                "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+                "set_number": r.set_number,
+                "game_number": r.game_number,
+                "point_a": r.point_a,
+                "point_b": r.point_b,
+                "point_string": r.point_string,
+                "server_name": r.server_name,
+                "is_break_point": r.is_break_point,
+                "is_set_point": r.is_set_point,
+                "is_match_point": r.is_match_point,
+                "is_tiebreak": r.is_tiebreak,
+            }
+            for r in rows
+        ]
+    except Exception:
+        return []
+
+
 def _latest_score(db: Session, match_id: int) -> dict:
     from models.live_score import LiveScore
 
