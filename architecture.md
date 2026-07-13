@@ -8,9 +8,9 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** 150 Python files, 15,768 lines (excl. tests/). Updated 2026-07-13 16:46 UTC.
+**Current Status:** 150 Python files, 15,768 lines (excl. tests/). Updated 2026-07-13 16:49 UTC.
 
-**Auto-generated file stats:** 150 Python files, 15,768 lines (excl. tests/). Updated 2026-07-13 16:46 UTC.
+**Auto-generated file stats:** 150 Python files, 15,768 lines (excl. tests/). Updated 2026-07-13 16:49 UTC.
 
 - **incidents/**: 16 files, 2,597 lines
 - **verification/**: 26 files, 2,232 lines
@@ -1782,3 +1782,20 @@ All API calls go through `fetchAPI<T>(path, params)` which targets `NEXT_PUBLIC_
 - Auto-polling via `refetchInterval` for live/batch pages
 - Static navigation via `next/link`; programmatic routing via `useRouter().push()`
 - Dark theme: slate-950 background, slate-800 borders, emerald accent
+
+## 19. Score Collection Improvements (Phase A) & Point Collection (Phase B)
+
+### Phase A — Score Gap Fixes
+- **Poll interval** reduced from 10s to **5s** (config.py, docker-compose)
+- **Per-set game history** parsed from detail-tab-content on every poll
+- **Gap detection**: when game score changes by >1, interpolated states inserted with `source='interpolated'`  
+- **Set history ticks**: completed set game scores stored as `source='set_history'`
+- **LiveScore.source** column: `'polled'` | `'interpolated'` | `'set_history'`
+
+### Phase B — Point-by-Point Collection
+- **LivePoint** model: hypertable with set_number, game_number, point_a/b, point_string, server_name, BP/SP/MP flags
+- **Flashscore JSON feed**: `d_hh_{match_id}_en_1` endpoint parsed for point-level state
+- **Point polling** every 3s for matches with betting markets
+- **Console**: Points tab on Match Explorer with PointTimeline component
+- **API**: `GET /api/matches/{id}/points` endpoint
+
