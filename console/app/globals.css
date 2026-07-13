@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+    --card: 217 33% 10%;
+    --card-foreground: 210 40% 98%;
+    --border: 217 33% 17%;
+    --primary: 160 84% 39%;
+    --primary-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 160 84% 39%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+  }
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: rgb(2, 6, 23);
+  color: rgb(241, 245, 249);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgb(15, 23, 42);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(51, 65, 85);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(71, 85, 105);
+}
+
+/* AG Grid Dark Theme Overrides */
+.ag-theme-alpine-dark {
+  --ag-background-color: rgb(15, 23, 42);
+  --ag-header-background-color: rgb(30, 41, 59);
+  --ag-header-foreground-color: rgb(148, 163, 184);
+  --ag-foreground-color: rgb(226, 232, 240);
+  --ag-border-color: rgb(51, 65, 85);
+  --ag-row-hover-color: rgb(30, 41, 59);
+  --ag-selected-row-background-color: rgba(16, 185, 129, 0.08);
+  --ag-odd-row-background-color: rgb(17, 24, 39);
+  --ag-font-family: inherit;
+  --ag-font-size: 13px;
+  --ag-row-height: 36px;
+  --ag-header-height: 40px;
+}
+
+.ag-theme-alpine-dark .ag-root-wrapper {
+  border-color: rgb(51, 65, 85) !important;
+}
+
+.ag-theme-alpine-dark .ag-row {
+  border-color: rgb(30, 41, 59) !important;
+}
