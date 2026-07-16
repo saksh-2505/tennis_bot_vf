@@ -129,7 +129,8 @@ def build_match_registry() -> list["TrackedMatch"]:
             else:
                 if fs.status != tm.status and fs.status in ("FINISHED", "RETIRED", "WALKOVER"):
                     tm.actual_finish = tm.actual_finish or datetime.now(timezone.utc)
-                tm.status = fs.status
+                if tm.status != "FINISHED":
+                    tm.status = fs.status
                 tm.player1_name = fs.player_a
                 tm.player2_name = fs.player_b
                 tm.tournament = fs.tournament
