@@ -311,15 +311,6 @@ def match_all(
 ) -> list[MarketMatchResult]:
     results: list[MarketMatchResult] = []
     used_market_ids: set[str] = set()
-    if session is not None:
-        try:
-            from models.tracked_match import TrackedMatch
-            assigned = session.query(TrackedMatch.betting_market_id).filter(
-                TrackedMatch.betting_market_id.isnot(None)
-            ).all()
-            used_market_ids.update(row[0] for row in assigned if row[0])
-        except Exception:
-            pass
 
     for tm in tracked_matches:
         if tm.betting_market_id:
