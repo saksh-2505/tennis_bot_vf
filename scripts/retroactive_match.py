@@ -100,11 +100,14 @@ def run_retroactive_matching(
                 if res.selected_confidence >= confidence_threshold:
                     for tm in trackable:
                         if tm.flashscore_match_id == res.flashscore_match_id:
-                            if not dry_run:
+                            if tm.betting_market_id and tm.betting_market_id != res.selected_market_id:
+                                continue
+                            if not dry_run and not tm.betting_market_id:
                                 tm.betting_market_id = res.selected_market_id
                                 tm.market_assigned_at = datetime.now(timezone.utc)
-                            stats["newly_matched"] += 1
-                            logger.info(
+                            if tm.betting_market_id == res.selected_market_id or not tm.betting_market_id:
+                                stats["newly_matched"] += 1
+                                logger.info(
                                 "  MATCHED %s vs %s → market %s (%.3f, %s)",
                                 tm.player1_name, tm.player2_name,
                                 res.selected_market_id,

@@ -311,8 +311,20 @@ def match_all(
 ) -> list[MarketMatchResult]:
     results: list[MarketMatchResult] = []
     used_market_ids: set[str] = set()
+    if session is not None:
+        try:
+            from models.tracked_match import TrackedMatch
+            assigned = session.query(TrackedMatch.betting_market_id).filter(
+                TrackedMatch.betting_market_id.isnot(None)
+            ).all()
+            used_market_ids.update(row[0] for row in assigned if row[0])
+        except Exception:
+            pass
 
     for tm in tracked_matches:
+        if tm.betting_market_id:
+            continue
+        result = match_market(
         result = match_market(
             player1_name=tm.player1_name,
             player2_name=tm.player2_name,
@@ -325,8 +337,9 @@ def match_all(
         result.flashscore_match_id = tm.flashscore_match_id
 
         if result.match_found and result.selected_market_id:
-            used_market_ids.add(result.selected_market_id)
-            tm.betting_market_id = result.selected_market_id
+            if result.selected_market_id not in used_market_ids:
+                used_market_ids.add(result.selected_market_id)
+                tm.betting_market_id = result.selected_market_id
 
         results.append(result)
 
