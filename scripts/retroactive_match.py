@@ -107,22 +107,20 @@ def run_retroactive_matching(
                                 tm.market_assigned_at = datetime.now(timezone.utc)
                             if tm.betting_market_id == res.selected_market_id or not tm.betting_market_id:
                                 stats["newly_matched"] += 1
-                                logger.info(
-                                "  MATCHED %s vs %s → market %s (%.3f, %s)",
+                            logger.info(
+                                "  MATCHED %s vs %s → market %s (%.3f)",
                                 tm.player1_name, tm.player2_name,
                                 res.selected_market_id,
                                 res.selected_confidence,
-                                res.selected_confidence_level,
                             )
                             break
                 else:
                     logger.debug(
-                        "  SKIPPED (low conf %.3f < %.2f): %s vs %s → %s",
+                        "  SKIPPED (low conf %.3f < %.2f): %s → %s",
                         res.selected_confidence,
                         confidence_threshold,
                         res.flashscore_match_id,
                         res.selected_market_id or "none",
-                        res.match_explanation,
                     )
                     stats["failed"] += 1
             else:
