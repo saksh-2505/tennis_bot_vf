@@ -43,14 +43,23 @@ def _find_player(session, name: str):
         else:
             last_name = parts[-1]
 
-        if len(last_name) >= 3:
-            p = session.query(Player).filter(
-                or_(
-                    Player.full_name.ilike(f"{last_name} %"),
-                    Player.full_name.ilike(f"% {last_name}"),
-                    Player.full_name.ilike(f"%{last_name}%"),
-                )
-            ).first()
+        if len(last_name) >= 2:
+            if len(last_name) >= 4:
+                p = session.query(Player).filter(
+                    or_(
+                        Player.full_name.ilike(f"{last_name} %"),
+                        Player.full_name.ilike(f"% {last_name}"),
+                        Player.full_name.ilike(f"%{last_name}%"),
+                    )
+                ).first()
+            else:
+                p = session.query(Player).filter(
+                    or_(
+                        Player.full_name.ilike(f"{last_name} %"),
+                        Player.full_name.ilike(f"% {last_name}"),
+                        Player.full_name.ilike(f"% {last_name} %"),
+                    )
+                ).first()
             if p:
                 return p
 
@@ -84,6 +93,8 @@ def build_match_registry() -> list["TrackedMatch"]:
                 "market_id": bt.market_id,
                 "runner_a": bt.player_a,
                 "runner_b": bt.player_b,
+                "date": bt.event_date or "",
+                "comp_name": bt.comp_name or "",
             }
             for bt in bt_matches
         ]

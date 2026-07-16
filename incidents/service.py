@@ -38,7 +38,8 @@ def create_incident(
     )
 
     if existing:
-        existing.occurrence_count += 1
+        if existing.occurrence_count < 10:
+            existing.occurrence_count += 1
         existing.last_detected_at = datetime.now(timezone.utc)
         if summary:
             existing.summary = summary

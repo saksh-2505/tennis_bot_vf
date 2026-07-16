@@ -74,6 +74,8 @@ def discover_matches(
                 player_b=runner_b["name"].upper(),
                 odds_player_a=odds_a,
                 odds_player_b=odds_b,
+                event_date=event.get("date") or event.get("start"),
+                comp_name=event.get("comp_name"),
             )
         )
 
@@ -110,6 +112,8 @@ def save_matches_to_db(matches: list[BettingsiteMatch]) -> int:
                 player_b=m.player_b,
                 odds_player_a=m.odds_player_a,
                 odds_player_b=m.odds_player_b,
+                event_date=m.event_date,
+                comp_name=m.comp_name,
                 discovered_at=m.discovered_at,
             )
             session.add(record)

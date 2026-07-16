@@ -8,26 +8,26 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** 150 Python files, 15,769 lines (excl. tests/). Updated 2026-07-16 13:19 UTC.
+**Current Status:** 151 Python files, 16,063 lines (excl. tests/). Updated 2026-07-16 16:28 UTC.
 
-**Auto-generated file stats:** 150 Python files, 15,769 lines (excl. tests/). Updated 2026-07-16 13:19 UTC.
+**Auto-generated file stats:** 151 Python files, 16,063 lines (excl. tests/). Updated 2026-07-16 16:28 UTC.
 
-- **incidents/**: 16 files, 2,597 lines
+- **incidents/**: 16 files, 2,614 lines
 - **verification/**: 26 files, 2,232 lines
 - **observability/**: 18 files, 1,980 lines
 - **console_api/**: 24 files, 1,964 lines
-- **collector/**: 10 files, 1,297 lines
-- **live_collector/**: 5 files, 1,111 lines
-- **matcher/**: 4 files, 808 lines
+- **collector/**: 10 files, 1,303 lines
+- **live_collector/**: 5 files, 1,155 lines
+- **matcher/**: 4 files, 826 lines
 - **repair/**: 4 files, 641 lines
+- **scripts/**: 7 files, 529 lines
 - **finalizer/**: 5 files, 524 lines
-- **models/**: 10 files, 467 lines
+- **models/**: 10 files, 469 lines
 - **orchestrator/**: 2 files, 427 lines
 - **reports/**: 2 files, 389 lines
 - **root/**: 6 files, 361 lines
-- **scripts/**: 6 files, 333 lines
 - **monitor/**: 1 files, 291 lines
-- **registry/**: 2 files, 165 lines
+- **registry/**: 2 files, 176 lines
 - **shared/**: 3 files, 152 lines
 - **backtest/**: 1 files, 5 lines
 - **dashboard/**: 1 files, 5 lines

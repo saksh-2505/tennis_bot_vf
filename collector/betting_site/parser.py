@@ -21,6 +21,8 @@ class BettingsiteMatch:
     player_b: str
     odds_player_a: float | None
     odds_player_b: float | None
+    event_date: str | None = None
+    comp_name: str | None = None
     discovered_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc)
     )

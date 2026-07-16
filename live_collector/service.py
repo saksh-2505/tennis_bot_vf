@@ -159,7 +159,29 @@ def _get_live_matches() -> list[dict]:
     )
 
     with db.SessionLocal() as session:
-        # Pre-fetch URLs for matches about to start
+        walkover_keywords = ["walkover", "w/o", "ret.", "retired", "retirement",
+                           "cancelled", "canceled", "postponed", "abandoned"]
+
+        pending = (
+            session.query(TrackedMatch)
+            .filter(
+                TrackedMatch.status.in_(["DISCOVERED", "SCHEDULED"]),
+                TrackedMatch.tracking_enabled.is_(True),
+            )
+            .all()
+        )
+        for m in pending:
+            t = (m.tournament or "").lower()
+            if any(kw in t for kw in walkover_keywords):
+                m.status = "FINISHED"
+                m.actual_finish = now
+                logger.info(
+                    "Walkover detected: %s vs %s (%s) — marking FINISHED",
+                    m.player1_name, m.player2_name, m.tournament,
+                )
+        if any(m.status == "FINISHED" for m in pending):
+            session.commit()
+
         upcoming = (
             session.query(TrackedMatch)
             .filter(
@@ -176,7 +198,6 @@ def _get_live_matches() -> list[dict]:
         if upcoming:
             session.commit()
 
-        # Fetch all LIVE matches
         result = (
             session.query(TrackedMatch)
             .filter(
@@ -186,7 +207,6 @@ def _get_live_matches() -> list[dict]:
             .all()
         )
 
-        # Lazy betting market matching for matches without odds
         _try_lazy_betting_match(session, result)
 
         return [
@@ -230,6 +250,8 @@ def _try_lazy_betting_match(session, live_matches: list) -> None:
             "market_id": bt.market_id,
             "runner_a": bt.player_a,
             "runner_b": bt.player_b,
+            "date": bt.event_date or "",
+            "comp_name": bt.comp_name or "",
         }
         for bt in bt_events_raw
     ]

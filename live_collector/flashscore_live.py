@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -34,6 +35,8 @@ MOBILE_HEADERS = {
 }
 
 TIMEOUT = 30.0
+RETRY_COUNT = 3
+RETRY_BACKOFF_SECONDS = 2.0
 
 FINISHED_KEYWORDS = {"FINISHED", "RETIRED", "WALKOVER", "CANCELLED", "ABANDONED", "POSTPONED"}
 
@@ -116,23 +119,42 @@ def _detect_gaps(
 
 def poll_flashscore_score(tracked_match_id: int, flashscore_match_id: str) -> ScoreSnapshot:
     url = MOBILE_MATCH_URL.format(match_id=flashscore_match_id)
-    try:
-        with httpx.Client(
-            headers=MOBILE_HEADERS, timeout=TIMEOUT, follow_redirects=True
-        ) as client:
-            resp = client.get(url)
-            resp.raise_for_status()
-            snap = _parse_live_score(resp.text)
-            if snap.set_score_a is None and not snap.match_finished:
-                logger.warning(
-                    "Flashscore parser returned empty for %s (HTTP %d)",
-                    flashscore_match_id, resp.status_code,
-                )
-            return snap
-    except httpx.HTTPStatusError as e:
-        logger.warning("Flashscore HTTP error for %s: %d", flashscore_match_id, e.response.status_code)
-    except Exception as e:
-        logger.debug("Flashscore poll failed for %s: %s", flashscore_match_id, e)
+    last_error = ""
+
+    for attempt in range(RETRY_COUNT):
+        try:
+            with httpx.Client(
+                headers=MOBILE_HEADERS, timeout=TIMEOUT, follow_redirects=True
+            ) as client:
+                resp = client.get(url)
+                resp.raise_for_status()
+                snap = _parse_live_score(resp.text)
+                if snap.set_score_a is None and not snap.match_finished:
+                    logger.warning(
+                        "Flashscore parser returned empty for %s (HTTP %d, attempt %d/%d)",
+                        flashscore_match_id, resp.status_code, attempt + 1, RETRY_COUNT,
+                    )
+                    time.sleep(RETRY_BACKOFF_SECONDS)
+                    continue
+                return snap
+        except httpx.HTTPStatusError as e:
+            last_error = f"HTTP {e.response.status_code}"
+            logger.warning(
+                "Flashscore HTTP error for %s: %d (attempt %d/%d)",
+                flashscore_match_id, e.response.status_code, attempt + 1, RETRY_COUNT,
+            )
+        except Exception as e:
+            last_error = str(e)[:100]
+            logger.debug(
+                "Flashscore poll failed for %s: %s (attempt %d/%d)",
+                flashscore_match_id, e, attempt + 1, RETRY_COUNT,
+            )
+
+        if attempt < RETRY_COUNT - 1:
+            time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
+
+    if last_error:
+        logger.warning("Flashscore poll exhausted retries for %s: %s", flashscore_match_id, last_error)
     return ScoreSnapshot()
 
 

@@ -439,7 +439,12 @@ def _check_unfinalized_finished(session: Session) -> list[dict]:
     return incidents
 
 
+_resolve_candidates: dict[str, int] = {}
+
+
 def _auto_resolve_healed(session: Session, current_incidents: list[dict]) -> None:
+    global _resolve_candidates
+
     open_incidents = get_open_incidents(session)
     current_sigs = {
         (inc["category"], inc["module"], inc["title"]) for inc in current_incidents
@@ -447,10 +452,21 @@ def _auto_resolve_healed(session: Session, current_incidents: list[dict]) -> Non
 
     for incident in open_incidents:
         sig = (incident.category, incident.module, incident.title)
+        sig_key = "|".join(str(x) for x in sig)
         if sig not in current_sigs:
-            resolve_incident(session, incident.incident_id)
-            logger.info(
-                "Auto-resolved INC_%d — condition no longer detected: %s",
-                incident.incident_id,
-                incident.title,
-            )
+            count = _resolve_candidates.get(sig_key, 0) + 1
+            if count >= 2:
+                _resolve_candidates.pop(sig_key, None)
+                resolve_incident(session, incident.incident_id)
+                logger.info(
+                    "Auto-resolved INC_%d — condition healed for %d ticks: %s",
+                    incident.incident_id, count, incident.title,
+                )
+            else:
+                _resolve_candidates[sig_key] = count
+                logger.debug(
+                    "Healing tick %d/2 for INC_%d: %s",
+                    count, incident.incident_id, incident.title,
+                )
+        else:
+            _resolve_candidates.pop(sig_key, None)

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -15,7 +16,16 @@ _COMPOUND_LAST_NAMES = {
     "de minaur", "van de zandschulp", "van assche", "de jong",
     "van rijthoven", "di mino", "da silva", "del bonis",
     "de almeida", "de schepper", "de loore", "de bakker",
-    "de graaf",
+    "de graaf", "van der goes", "van lottum", "van de kerkhof",
+    "de la torre", "di pasquale", "dos santos", "el aynaoui",
+    "al ghareeb", "da costa", "dos reis", "del olmo",
+    "de la fuente", "del castillo", "da silveira", "van duijvenbode",
+    "van campenhout", "van beek", "van hoorn", "de vries",
+    "van der plas", "van den heuvel", "de groot", "de wit",
+    "de bruijn", "de vries", "van dijk", "van der meer",
+    "van den berg", "de lange", "de boer", "de jager",
+    "van der linden", "de ruiter", "van dam", "de vos",
+    "de haan", "van der velde",
 }
 
 _SHORT_NAMES = {"wu", "ma", "li", "lu", "na", "xu", "yu", "bo", "he", "ji", "qi", "ye", "ko", "ho", "z", "n", "m", "p", "c", "k"}
@@ -51,9 +61,17 @@ def _pair_score(
     return combined, reason
 
 
+def _normalize_name_for_match(name: str) -> str:
+    n = unicodedata.normalize("NFKD", name)
+    n = "".join(c for c in n if not unicodedata.combining(c))
+    n = n.replace(",", " ").replace(";", " ")
+    n = " ".join(n.split())
+    return n.lower()
+
+
 def _player_match_score(fs_name: str, bt_name: str) -> tuple[float, str]:
-    fs = fs_name.strip().lower()
-    bt = bt_name.strip().lower()
+    fs = _normalize_name_for_match(fs_name.strip())
+    bt = _normalize_name_for_match(bt_name.strip())
 
     if fs == bt:
         return 1.0, "exact"

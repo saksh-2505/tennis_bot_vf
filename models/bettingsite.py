@@ -20,6 +20,8 @@ class BettingsiteFoundMatch(Base):
     player_b: Mapped[str] = mapped_column(String(255), nullable=False)
     odds_player_a: Mapped[float | None] = mapped_column(Float, nullable=True)
     odds_player_b: Mapped[float | None] = mapped_column(Float, nullable=True)
+    event_date: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    comp_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     discovered_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         default=lambda: datetime.now(timezone.utc),
