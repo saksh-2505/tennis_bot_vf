@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type RegistrySummary, type MatchOverview } from "@/lib/api";
+import { api, type RegistrySummary } from "@/lib/api";
 import { StatCard } from "@/components/layout/StatCard";
 import { DataTable } from "@/components/data/DataTable";
 import { Badge } from "@/components/ui/Badge";
@@ -25,19 +25,20 @@ export default function RegistryPage() {
     queryFn: () => api.registrySummary(),
   });
 
-  const matches = useQuery<MatchOverview[]>({
+  const matches = useQuery({
     queryKey: ["searchMatches", search],
-    queryFn: () => api.searchMatches(search ? { query: search } : {}),
+    queryFn: () => api.searchMatches(search ? { player: search } : {}),
   });
 
   const s = summary.data;
-  const byType = s?.by_type ?? {};
-  const maxTypeCount = Math.max(...Object.values(byType), 1);
+  const byStatus = s?.by_status ?? {};
+  const matchItems = matches.data?.items ?? [];
+  const maxStatusCount = Math.max(...Object.values(byStatus), 1);
 
   const matchCols = [
     { field: "id", headerName: "ID", width: 80 },
-    { field: "player_a", headerName: "Player A", flex: 2 },
-    { field: "player_b", headerName: "Player B", flex: 2 },
+    { field: "player1_name", headerName: "Player 1", flex: 2 },
+    { field: "player2_name", headerName: "Player 2", flex: 2 },
     { field: "tournament", headerName: "Tournament", flex: 1.5 },
     {
       field: "status",
@@ -47,7 +48,8 @@ export default function RegistryPage() {
         const s = p.value;
         if (s === "LIVE") return <Badge variant="success">LIVE</Badge>;
         if (s === "FINISHED") return <Badge variant="outline">FINISHED</Badge>;
-        if (s === "SCHEDULED") return <Badge className="bg-blue-600/20 text-blue-400 border-blue-600/30">SCHEDULED</Badge>;
+        if (s === "SCHEDULED" || s === "DISCOVERED")
+          return <Badge className="bg-blue-600/20 text-blue-400 border-blue-600/30">{s}</Badge>;
         return <Badge variant="outline">{s}</Badge>;
       },
     },
@@ -57,20 +59,16 @@ export default function RegistryPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-slate-100">Registry</h1>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <StatCard
-          title="Total Entities"
-          value={summary.isLoading ? "—" : s?.total_entities ?? "—"}
+          title="Total Tracked"
+          value={summary.isLoading ? "—" : s?.total ?? "—"}
           icon={<BookOpen className="h-4 w-4" />}
         />
         <StatCard
-          title="Last Updated"
-          value={summary.isLoading ? "—" : s?.last_updated ? new Date(s.last_updated).toLocaleString() : "—"}
-          icon={<Users className="h-4 w-4" />}
-        />
-        <StatCard
           title="Status Types"
-          value={Object.keys(byType).length}
+          value={Object.keys(byStatus).length}
+          icon={<Users className="h-4 w-4" />}
         />
       </div>
 
@@ -81,11 +79,11 @@ export default function RegistryPage() {
         <CardContent>
           {summary.isLoading ? (
             <p className="text-sm text-slate-500">Loading...</p>
-          ) : Object.keys(byType).length === 0 ? (
+          ) : Object.keys(byStatus).length === 0 ? (
             <p className="text-sm text-slate-500">No status data</p>
           ) : (
             <div className="space-y-2">
-              {Object.entries(byType).map(([status, count]) => (
+              {Object.entries(byStatus).map(([status, count]) => (
                 <div key={status} className="flex items-center gap-3">
                   <span className="w-20 text-xs text-slate-400">{status}</span>
                   <div className="flex-1">
@@ -94,7 +92,7 @@ export default function RegistryPage() {
                         className={`h-full rounded transition-all ${
                           statusColors[status] || "bg-slate-600"
                         }`}
-                        style={{ width: `${(count / maxTypeCount) * 100}%` }}
+                        style={{ width: `${(count / maxStatusCount) * 100}%` }}
                       />
                     </div>
                   </div>
@@ -110,7 +108,7 @@ export default function RegistryPage() {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-sm">Explore Matches</CardTitle>
           <Input
-            placeholder="Search registry..."
+            placeholder="Search by player name..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-64"
@@ -119,14 +117,10 @@ export default function RegistryPage() {
         <CardContent>
           {matches.isLoading ? (
             <p className="text-sm text-slate-500">Loading...</p>
-          ) : !matches.data || matches.data.length === 0 ? (
+          ) : matchItems.length === 0 ? (
             <p className="text-sm text-slate-500">No matches found</p>
           ) : (
-            <DataTable
-              rowData={matches.data}
-              columnDefs={matchCols}
-              height={400}
-            />
+            <DataTable rowData={matchItems} columnDefs={matchCols} height={400} />
           )}
         </CardContent>
       </Card>

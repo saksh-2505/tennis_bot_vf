@@ -8,271 +8,433 @@ async function fetchAPI<T>(path: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
-// ─── Interfaces ────────────────────────────────────────────────
+// ─── Pagination ──────────────────────────────────────────────
+
+export interface PaginatedResponse<T = Record<string, any>> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+// ─── Overview ─────────────────────────────────────────────────
 
 export interface PlatformOverview {
+  total_matches: number;
   live_matches: number;
-  total_matches_today: number;
-  collectors_running: number;
-  db_size: string;
-  incidents_today: number;
-  repairs_needed: number;
-  last_refresh: string | null;
-  db_connected: boolean;
-  uptime: string;
-  version: string;
+  scheduled_matches: number;
+  finished_matches: number;
+  total_players: number;
+  total_incidents: number;
+  open_incidents: number;
+  total_score_ticks: number;
+  total_odds_ticks: number;
+  validation_pass_pct: number;
+  odds_coverage_pct: number;
+  replay_ready_pct: number;
+  avg_quality_score: number | null;
 }
+
+// ─── Matches ──────────────────────────────────────────────────
 
 export interface MatchOverview {
   id: number;
-  event_id: string;
+  flashscore_match_id: string;
+  betting_market_id: string | null;
+  player1_name: string;
+  player2_name: string;
   tournament: string;
-  round: string;
-  player_a: string;
-  player_b: string;
-  player_a_rank: number | null;
-  player_b_rank: number | null;
   status: string;
-  start_time: string | null;
-  last_poll_time: string | null;
-  set_score_a: number;
-  set_score_b: number;
-  game_score_a: number;
-  game_score_b: number;
-  point_score_a: string;
-  point_score_b: string;
-  odds_avg: number | null;
-  odds_ev: number | null;
+  scheduled_start: string | null;
+  actual_finish: string | null;
+  live_score_set_a: number | null;
+  live_score_set_b: number | null;
+  live_score_game_a: number | null;
+  live_score_game_b: number | null;
+  live_score_point: string | null;
+  live_score_server: string | null;
+  live_odds_a: number | null;
+  live_odds_b: number | null;
+  last_score_poll: string | null;
+  last_odds_poll: string | null;
   quality_grade: string | null;
-  matched: boolean;
-  collector_name: string | null;
+  quality_score: number | null;
 }
 
 export interface MatchDetail extends MatchOverview {
+  player1_id: number | null;
+  player2_id: number | null;
+  round: string | null;
+  surface: string | null;
+  tracking_enabled: boolean;
+  match_duration_min: number | null;
+  market_assigned_at: string | null;
+  collection_started_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  completed: Record<string, any> | null;
   scores: ScorePoint[];
   odds: OddsPoint[];
-  timeline: TimelineEvent[];
+  incidents: IncidentSummary[];
+  repairs: Array<{ action: string; repaired_at: string | null }>;
+  match_attempts: MatchAttempt[];
 }
 
 export interface ScorePoint {
   timestamp: string;
-  set_score_a: number;
-  set_score_b: number;
-  game_score_a: number;
-  game_score_b: number;
-  point_score_a: string;
-  point_score_b: string;
-  serving_player: string | null;
+  set_score_a: number | null;
+  set_score_b: number | null;
+  game_score_a: number | null;
+  game_score_b: number | null;
+  point_score: string | null;
+  server: string | null;
+  is_tiebreak: boolean;
+  match_finished: boolean;
 }
 
 export interface OddsPoint {
   timestamp: string;
-  provider: string;
-  odds_a: number;
-  odds_b: number;
-  market: string;
+  back_odds_a: number | null;
+  back_odds_b: number | null;
+  lay_odds_a: number | null;
+  lay_odds_b: number | null;
+  volume_a: number | null;
+  volume_b: number | null;
 }
 
-export interface TimelineEvent {
-  timestamp: string;
-  event_type: string;
-  description: string;
-  severity: string;
-}
+// ─── Collectors ────────────────────────────────────────────────
 
 export interface CollectorStatus {
   name: string;
-  type: string;
-  running: boolean;
-  last_run: string | null;
-  matches_collected: number;
-  errors: number;
-  avg_latency: number | null;
   status: string;
+  last_poll: string | null;
+  records_count: number;
+  heartbeat_seconds_ago: number | null;
 }
+
+// ─── Market Matching ──────────────────────────────────────────
 
 export interface MatchingSummary {
-  total_attempts: number;
-  successful_matches: number;
-  unmatched_count: number;
-  match_rate: number;
-  by_provider: Record<string, number>;
+  total_tracked: number;
+  with_market: number;
+  without_market: number;
+  matching_pct: number;
+  by_confidence: Record<string, number>;
 }
 
-export interface MatchingAttempt {
+export interface MatchAttempt {
+  id?: number;
+  flashscore_match_id?: string;
+  betting_market_id?: string | null;
+  player1_name?: string;
+  player2_name?: string;
+  tournament?: string;
+  confidence_score?: number | null;
+  confidence_level?: string | null;
+  signal_scores?: any;
+  signal_reasons?: any;
+  selected?: boolean;
+  rejected?: boolean;
+  rejection_reason?: string | null;
+  created_at?: string | null;
+}
+
+export interface UnmatchedMatch {
   id: number;
-  timestamp: string;
-  event_id: string;
-  player_a: string;
-  player_b: string;
-  source_provider: string;
-  target_provider: string;
-  matched: boolean;
-  confidence: number | null;
-  match_key: string | null;
+  flashscore_match_id: string;
+  player1_name: string;
+  player2_name: string;
+  tournament: string;
+  status: string;
+  scheduled_start: string | null;
 }
 
-export interface QualityDistribution {
-  grade: string;
-  count: number;
-  percentage: number;
+export interface UnmatchedResponse {
+  total: number;
+  offset: number;
+  limit: number;
+  matches: UnmatchedMatch[];
 }
 
-export interface QualityFailure {
-  id: number;
-  timestamp: string;
-  event_id: string;
-  check_type: string;
-  field: string;
-  expected: string | null;
-  actual: string | null;
-  severity: string;
-  resolved: boolean;
+// ─── Discovery ─────────────────────────────────────────────────
+
+export interface DiscoverySummary {
+  flashscore_total: number;
+  bettingsite_total: number;
+  flashscore_by_day: Array<{ date: string; count: number }>;
+  bettingsite_by_day: Array<{ date: string; count: number }>;
 }
 
-export interface Incident {
-  id: number;
-  timestamp: string;
-  event_id: string | null;
-  incident_type: string;
-  severity: string;
-  description: string;
-  resolved: boolean;
-  resolved_at: string | null;
-  resolution_note: string | null;
+export interface DiscoveryRun {
+  timestamp: string | null;
+  level: string;
+  source: string;
+  message: string;
+  details: any | null;
 }
 
-export interface RepairSummary {
-  total_repairs: number;
-  pending: number;
-  in_progress: number;
-  completed: number;
-  failed: number;
-  by_type: Record<string, number>;
+// ─── Pipeline ──────────────────────────────────────────────────
+
+export interface PipelineStage {
+  name: string;
+  status: string;
+  last_run: string | null;
 }
 
 export interface PipelineStatus {
-  stage: string;
-  status: string;
-  last_run: string | null;
-  items_processed: number;
-  errors: number;
-  duration_sec: number | null;
+  stages: PipelineStage[];
 }
 
-export interface Report {
+// ─── Incidents ─────────────────────────────────────────────────
+
+export interface IncidentSummary {
   id: number;
-  title: string;
-  report_type: string;
-  generated_at: string;
-  format: string;
-  size_bytes: number;
+  severity: string;
   status: string;
-}
-
-export interface AnalyticsTrend {
-  date: string;
-  matches_collected: number;
-  incidents: number;
-  match_rate: number;
-  avg_latency: number;
-}
-
-export interface SearchResult {
-  type: string;
-  id: number;
+  category: string;
+  module: string;
   title: string;
-  description: string;
-  url: string;
+  first_detected: string | null;
+  occurrence_count: number;
+  tracked_match_id: number | null;
 }
 
-export interface TimelineEntry {
-  timestamp: string;
-  event_type: string;
-  description: string;
-  source: string;
-  match_id: number | null;
-  event_id: string | null;
+export interface IncidentDetail extends IncidentSummary {
+  collector_name: string | null;
+  summary: string | null;
+  incident_hash: string | null;
+  last_detected_at: string | null;
+  resolved_at: string | null;
+  recovery_attempts: number;
 }
+
+// ─── Quality ───────────────────────────────────────────────────
+
+export interface QualityDistribution {
+  total_matches: number;
+  distribution: Array<{ grade: string; count: number; percentage: number }>;
+  avg_quality_score: number | null;
+}
+
+export interface QualityFailures {
+  total_failures: number;
+  by_category: Record<string, number>;
+}
+
+// ─── Repair ────────────────────────────────────────────────────
+
+export interface RepairSummary {
+  total_repaired: number;
+  by_repair_action: Array<{ action: string; count: number }>;
+}
+
+export interface RepairHistoryItem {
+  tracked_match_id: number;
+  flashscore_match_id: string;
+  tournament: string;
+  repair_actions: string | null;
+  repair_count: number;
+  last_repaired_at: string | null;
+  quality_grade: string | null;
+  validation_passed: boolean | null;
+}
+
+export interface RepairHistory {
+  total: number;
+  offset: number;
+  limit: number;
+  repairs: RepairHistoryItem[];
+}
+
+// ─── Validation ────────────────────────────────────────────────
+
+export interface ValidationSummary {
+  total_completed: number;
+  validation_passed: number;
+  validation_failed: number;
+  validation_pass_pct: number;
+  ready_for_replay: number;
+  ready_for_backtesting: number;
+}
+
+// ─── Registry ──────────────────────────────────────────────────
+
+export interface RegistrySummary {
+  total: number;
+  by_status: Record<string, number>;
+}
+
+export interface RegistryPlayer {
+  player_id: number;
+  full_name: string;
+  nationality: string | null;
+  age: number | null;
+  gender: string | null;
+  atp_or_wta: string | null;
+  current_rank: number | null;
+  career_high_rank: number | null;
+  total_matches: number | null;
+  total_wins: number | null;
+  total_losses: number | null;
+  career_win_percentage: number | null;
+  plays: string | null;
+  backhand: string | null;
+}
+
+// ─── Database ──────────────────────────────────────────────────
 
 export interface DbTable {
-  name: string;
   schema: string;
+  table: string;
   row_count: number;
-  size: string;
-  last_vacuum: string | null;
+}
+
+export interface DbTablesResponse {
+  tables: DbTable[];
 }
 
 export interface DbTableDetail {
-  table_name: string;
-  columns: { name: string; type: string; nullable: boolean }[];
-  row_count: number;
-  sample_rows: Record<string, any>[];
+  table: string;
+  columns: string[];
+  offset: number;
+  limit: number;
+  rows: Record<string, any>[];
 }
 
-export interface RegistrySummary {
-  total_entities: number;
-  by_type: Record<string, number>;
-  last_updated: string | null;
+// ─── Analytics ─────────────────────────────────────────────────
+
+export interface AnalyticsTrend {
+  date: string;
+  matches_tracked?: number;
+  matches_discovered?: number;
+  odds_collected?: number;
+  validation_pass_pct?: number;
+  avg_quality_score?: number | null;
 }
 
-export interface DiscoverySummary {
-  total_discovered: number;
-  new_today: number;
-  sources_active: number;
-  last_scan: string | null;
-  by_source: Record<string, number>;
+export interface AnalyticsResponse {
+  trends: AnalyticsTrend[];
 }
 
-export interface ValidationSummary {
-  total_checks: number;
-  passed: number;
-  failed: number;
-  pass_rate: number;
-  by_check_type: Record<string, { passed: number; failed: number }>;
+// ─── Search ────────────────────────────────────────────────────
+
+export interface SearchResult {
+  type: string;
+  id: number | string;
+  label: string;
+  match?: Record<string, any>;
 }
 
-export interface VerificationHealthPoint {
-  timestamp: string;
-  health_score: number;
-  checks_passed: number;
-  checks_total: number;
+export interface SearchResponse {
+  results: SearchResult[];
 }
+
+// ─── Timeline ──────────────────────────────────────────────────
+
+export interface TimelineEntry {
+  timestamp: string | null;
+  event_id: number;
+  level: string;
+  source: string;
+  message: string;
+  details: any | null;
+  incident_id: number | null;
+  tracked_match_id: number | null;
+}
+
+// ─── Verification ──────────────────────────────────────────────
+
+export interface VerificationHistoryResponse {
+  history: Array<Record<string, any>>;
+}
+
+// ─── Observability ─────────────────────────────────────────────
 
 export interface ObservabilityHealth {
-  overall_status: string;
-  components: { name: string; status: string; latency_ms: number | null; message: string | null }[];
+  db: boolean;
+  version: string;
 }
 
-// ─── API ──────────────────────────────────────────────────────
+export interface ObservabilityMetrics {
+  events_by_level: Record<string, number>;
+  events_by_source: Record<string, number>;
+  recent_events: Array<{
+    timestamp: string | null;
+    level: string;
+    source: string;
+    message: string;
+  }>;
+}
+
+// ─── Reports ───────────────────────────────────────────────────
+
+export interface ReportsResponse {
+  market_matching: Record<string, any>;
+  odds_coverage: Record<string, any>;
+  collection: Record<string, any>;
+  failure_distribution: Record<string, any>;
+  dataset_quality: Record<string, any>;
+  replay_readiness: Record<string, any>;
+}
+
+// ─── API functions ─────────────────────────────────────────────
 
 export const api = {
   overview: () => fetchAPI<PlatformOverview>('/api/overview'),
   liveMatches: () => fetchAPI<MatchOverview[]>('/api/matches/live'),
   matchDetail: (id: number) => fetchAPI<MatchDetail>(`/api/matches/${id}`),
-  matchScores: (id: number) => fetchAPI<ScorePoint[]>('/api/matches/' + id + '/scores'),
-  matchOdds: (id: number) => fetchAPI<OddsPoint[]>('/api/matches/' + id + '/odds'),
-  matchTimeline: (id: number) => fetchAPI<TimelineEvent[]>('/api/matches/' + id + '/timeline'),
-  searchMatches: (params: Record<string, string>) => fetchAPI<MatchOverview[]>('/api/matches', params),
+  matchScores: (id: number) => fetchAPI<ScorePoint[]>(`/api/matches/${id}/scores`),
+  matchOdds: (id: number) => fetchAPI<OddsPoint[]>(`/api/matches/${id}/odds`),
+  matchTimeline: (id: number) => fetchAPI<Record<string, any>[]>(`/api/matches/${id}/timeline`),
+  matchPoints: (id: number) => fetchAPI<Record<string, any>[]>(`/api/matches/${id}/points`),
+  searchMatches: (params: Record<string, string>) =>
+    fetchAPI<PaginatedResponse>('/api/matches', params),
+
   collectors: () => fetchAPI<CollectorStatus[]>('/api/collectors'),
+
   matchingSummary: () => fetchAPI<MatchingSummary>('/api/matching/summary'),
-  matchingUnmatched: () => fetchAPI<MatchingAttempt[]>('/api/matching/unmatched'),
-  matchingAttempts: (params: Record<string, string>) => fetchAPI<MatchingAttempt[]>('/api/matching/attempts', params),
-  qualityDistribution: () => fetchAPI<QualityDistribution[]>('/api/quality/distribution'),
-  qualityFailures: () => fetchAPI<QualityFailure[]>('/api/quality/failures'),
-  incidents: (params?: Record<string, string>) => fetchAPI<Incident[]>('/api/incidents', params),
-  incidentDetail: (id: number) => fetchAPI<Incident>('/api/incidents/' + id),
-  repairsSummary: () => fetchAPI<RepairSummary>('/api/repairs/summary'),
-  pipelineStatus: () => fetchAPI<PipelineStatus[]>('/api/pipeline/status'),
-  reports: () => fetchAPI<Report[]>('/api/reports/all'),
-  analyticsTrends: () => fetchAPI<AnalyticsTrend[]>('/api/analytics/trends'),
-  search: (q: string) => fetchAPI<SearchResult[]>('/api/search', { q }),
-  timeline: () => fetchAPI<TimelineEntry[]>('/api/timeline'),
-  dbTables: () => fetchAPI<DbTable[]>('/api/db/tables'),
-  dbTable: (name: string) => fetchAPI<DbTableDetail>('/api/db/table/' + name),
-  registrySummary: () => fetchAPI<RegistrySummary>('/api/registry/summary'),
+  matchingUnmatched: () => fetchAPI<UnmatchedResponse>('/api/matching/unmatched'),
+  matchingAttempts: (params?: Record<string, string>) =>
+    fetchAPI<PaginatedResponse<MatchAttempt>>('/api/matching/attempts', params),
+
   discoverySummary: () => fetchAPI<DiscoverySummary>('/api/discovery/summary'),
+  discoveryRuns: () => fetchAPI<DiscoveryRun[]>('/api/discovery/runs'),
+
+  pipelineStatus: () => fetchAPI<PipelineStatus>('/api/pipeline/status'),
+
+  incidents: (params?: Record<string, string>) =>
+    fetchAPI<PaginatedResponse<IncidentSummary>>('/api/incidents', params),
+  incidentDetail: (id: number) => fetchAPI<IncidentDetail>(`/api/incidents/${id}`),
+
+  qualityDistribution: () => fetchAPI<QualityDistribution>('/api/quality/distribution'),
+  qualityFailures: () => fetchAPI<QualityFailures>('/api/quality/failures'),
+
+  repairsSummary: () => fetchAPI<RepairSummary>('/api/repairs/summary'),
+  repairsHistory: (params?: Record<string, string>) =>
+    fetchAPI<RepairHistory>('/api/repairs/history', params),
+
   validationSummary: () => fetchAPI<ValidationSummary>('/api/validation/summary'),
-  verificationHistory: () => fetchAPI<VerificationHealthPoint[]>('/api/verification/health-score-history'),
+
+  registrySummary: () => fetchAPI<RegistrySummary>('/api/registry/summary'),
+  registryPlayers: (params?: Record<string, string>) =>
+    fetchAPI<PaginatedResponse<RegistryPlayer>>('/api/registry/players', params),
+
+  dbTables: () => fetchAPI<DbTablesResponse>('/api/db/tables'),
+  dbTable: (name: string) => fetchAPI<DbTableDetail>('/api/db/table/' + name),
+
+  analyticsTrends: () => fetchAPI<AnalyticsResponse>('/api/analytics/trends'),
+
+  search: (q: string) => fetchAPI<SearchResponse>('/api/search', { q }),
+
+  timeline: (params?: Record<string, string>) =>
+    fetchAPI<PaginatedResponse<TimelineEntry>>('/api/timeline', params),
+
+  verificationHistory: () => fetchAPI<VerificationHistoryResponse>('/api/verification/health-score-history'),
+
   observabilityHealth: () => fetchAPI<ObservabilityHealth>('/api/observability/health'),
+  observabilityMetrics: () => fetchAPI<ObservabilityMetrics>('/api/observability/metrics'),
+
+  reports: () => fetchAPI<ReportsResponse>('/api/reports/all'),
+  reportByName: (name: string) => fetchAPI<Record<string, any>>(`/api/reports/${name}`),
 };

@@ -12,37 +12,25 @@ import {
   Legend,
 } from "recharts";
 
-interface ScorePoint {
-  timestamp: string;
-  set_score_a: number;
-  set_score_b: number;
-  game_score_a: number;
-  game_score_b: number;
-  point_score_a: string;
-  point_score_b: string;
-  serving_player: string | null;
-}
-
-interface OddsPoint {
-  timestamp: string;
-  provider: string;
-  odds_a: number;
-  odds_b: number;
-  market: string;
-}
-
 interface ScoreTimelineProps {
-  scores: ScorePoint[];
-  odds?: OddsPoint[];
+  scores: Array<{
+    timestamp: string;
+    set_score_a: number | null;
+    set_score_b: number | null;
+    game_score_a: number | null;
+    game_score_b: number | null;
+    [key: string]: any;
+  }>;
+  odds?: any[];
 }
 
 export function ScoreTimeline({ scores, odds }: ScoreTimelineProps) {
   const chartData = scores.map((s) => ({
     time: new Date(s.timestamp).toLocaleTimeString(),
-    gameA: s.game_score_a,
-    gameB: s.game_score_b,
-    setA: s.set_score_a,
-    setB: s.set_score_b,
+    gameA: s.game_score_a ?? 0,
+    gameB: s.game_score_b ?? 0,
+    setA: s.set_score_a ?? 0,
+    setB: s.set_score_b ?? 0,
   }));
 
   return (

@@ -2,25 +2,23 @@
 
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type AnalyticsTrend } from "@/lib/api";
+import { api, type AnalyticsTrend, type AnalyticsResponse } from "@/lib/api";
 import { StatCard } from "@/components/layout/StatCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { TrendingUp, Activity, AlertTriangle, Clock } from "lucide-react";
+import { TrendingUp, Activity, CheckCircle, ShieldCheck } from "lucide-react";
 
 export default function AnalyticsPage() {
-  const { data, isLoading, error } = useQuery<AnalyticsTrend[]>({
+  const { data, isLoading, error } = useQuery<AnalyticsResponse>({
     queryKey: ["analyticsTrends"],
     queryFn: () => api.analyticsTrends(),
   });
 
-  const trends = data ?? [];
+  const trends = data?.trends ?? [];
   const last30 = trends.slice(-30);
-
   const latest = trends[trends.length - 1];
 
-  const maxCollected = Math.max(...last30.map((t) => t.matches_collected), 1);
-  const maxIncidents = Math.max(...last30.map((t) => t.incidents), 1);
-  const maxLatency = Math.max(...last30.map((t) => t.avg_latency), 1);
+  const maxDiscovered = Math.max(...last30.map((t) => t.matches_discovered ?? 0), 1);
+  const maxTracked = Math.max(...last30.map((t) => t.matches_tracked ?? 0), 1);
 
   return (
     <div className="space-y-6">
@@ -28,25 +26,24 @@ export default function AnalyticsPage() {
 
       <div className="grid grid-cols-4 gap-4">
         <StatCard
-          title="Matches Collected (Latest)"
-          value={isLoading ? "—" : latest?.matches_collected ?? "—"}
+          title="Discovered (Latest)"
+          value={isLoading ? "—" : latest?.matches_discovered ?? "—"}
           icon={<Activity className="h-4 w-4" />}
         />
         <StatCard
-          title="Incidents (Latest)"
-          value={isLoading ? "—" : latest?.incidents ?? "—"}
-          icon={<AlertTriangle className="h-4 w-4" />}
-          color={latest && latest.incidents > 0 ? "#ef4444" : undefined}
-        />
-        <StatCard
-          title="Match Rate"
-          value={isLoading ? "—" : latest ? `${latest.match_rate.toFixed(1)}%` : "—"}
+          title="Tracked (Latest)"
+          value={isLoading ? "—" : latest?.matches_tracked ?? "—"}
           icon={<TrendingUp className="h-4 w-4" />}
         />
         <StatCard
-          title="Avg Latency"
-          value={isLoading ? "—" : latest ? `${latest.avg_latency.toFixed(1)} ms` : "—"}
-          icon={<Clock className="h-4 w-4" />}
+          title="Validation Pass"
+          value={isLoading ? "—" : latest?.validation_pass_pct != null ? `${latest.validation_pass_pct}%` : "—"}
+          icon={<CheckCircle className="h-4 w-4" />}
+        />
+        <StatCard
+          title="Avg Quality Score"
+          value={isLoading ? "—" : latest?.avg_quality_score != null ? String(latest.avg_quality_score) : "—"}
+          icon={<ShieldCheck className="h-4 w-4" />}
         />
       </div>
 
@@ -71,21 +68,21 @@ export default function AnalyticsPage() {
                       <div className="h-4 w-full overflow-hidden rounded bg-slate-800">
                         <div
                           className="h-full rounded bg-emerald-500 transition-all"
-                          style={{ width: `${(t.matches_collected / maxCollected) * 100}%` }}
+                          style={{ width: `${((t.matches_discovered ?? 0) / maxDiscovered) * 100}%` }}
                         />
                       </div>
                     </div>
-                    <span className="w-10 text-right font-mono text-slate-300">{t.matches_collected}</span>
+                    <span className="w-10 text-right font-mono text-slate-300">{t.matches_discovered ?? 0}</span>
                   </div>
                 ))}
               </div>
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-2 gap-6">
             <Card>
               <CardHeader>
-                <CardTitle className="text-sm">Incidents</CardTitle>
+                <CardTitle className="text-sm">Matches Tracked</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-1">
@@ -95,12 +92,12 @@ export default function AnalyticsPage() {
                       <div className="flex-1">
                         <div className="h-3 w-full overflow-hidden rounded bg-slate-800">
                           <div
-                            className={`h-full rounded transition-all ${t.incidents > 0 ? "bg-red-500" : "bg-emerald-500"}`}
-                            style={{ width: `${(t.incidents / Math.max(maxIncidents, 1)) * 100}%` }}
+                            className="h-full rounded bg-blue-500 transition-all"
+                            style={{ width: `${((t.matches_tracked ?? 0) / Math.max(maxTracked, 1)) * 100}%` }}
                           />
                         </div>
                       </div>
-                      <span className="w-6 text-right font-mono text-slate-300">{t.incidents}</span>
+                      <span className="w-8 text-right font-mono text-slate-300">{t.matches_tracked ?? 0}</span>
                     </div>
                   ))}
                 </div>
@@ -109,7 +106,7 @@ export default function AnalyticsPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-sm">Match Rate %</CardTitle>
+                <CardTitle className="text-sm">Validation Pass Rate</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-1">
@@ -120,37 +117,19 @@ export default function AnalyticsPage() {
                         <div className="h-3 w-full overflow-hidden rounded bg-slate-800">
                           <div
                             className={`h-full rounded transition-all ${
-                              t.match_rate >= 80 ? "bg-emerald-500" : t.match_rate >= 50 ? "bg-yellow-500" : "bg-red-500"
+                              (t.validation_pass_pct ?? 0) >= 80
+                                ? "bg-emerald-500"
+                                : (t.validation_pass_pct ?? 0) >= 50
+                                ? "bg-yellow-500"
+                                : "bg-red-500"
                             }`}
-                            style={{ width: `${t.match_rate}%` }}
+                            style={{ width: `${t.validation_pass_pct ?? 0}%` }}
                           />
                         </div>
                       </div>
-                      <span className="w-10 text-right font-mono text-slate-300">{t.match_rate.toFixed(1)}%</span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">Avg Latency (ms)</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-1">
-                  {last30.slice(-15).map((t, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs">
-                      <span className="w-20 text-slate-500">{t.date}</span>
-                      <div className="flex-1">
-                        <div className="h-3 w-full overflow-hidden rounded bg-slate-800">
-                          <div
-                            className={`h-full rounded bg-blue-500 transition-all`}
-                            style={{ width: `${Math.min((t.avg_latency / maxLatency) * 100, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                      <span className="w-14 text-right font-mono text-slate-300">{t.avg_latency.toFixed(0)}</span>
+                      <span className="w-12 text-right font-mono text-slate-300">
+                        {t.validation_pass_pct != null ? `${t.validation_pass_pct}%` : "—"}
+                      </span>
                     </div>
                   ))}
                 </div>

@@ -27,15 +27,15 @@ export default function SearchPage() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const { data, isLoading, error } = useQuery<SearchResult[]>({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["search", debounced],
     queryFn: () => api.search(debounced),
     enabled: debounced.length >= 2,
   });
 
-  const results = data ?? [];
+  const results = data?.results ?? [];
 
-  const grouped: Record<string, SearchResult[]> = {};
+  const grouped: Record<string, any[]> = {};
   results.forEach((r) => {
     const key = typeGroupLabel[r.type] || r.type || "Other";
     if (!grouped[key]) grouped[key] = [];

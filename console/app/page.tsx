@@ -7,7 +7,7 @@ import { StatCard } from "@/components/layout/StatCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { MatchCard } from "@/components/data/MatchCard";
-import { Activity, TrendingUp, ShieldCheck, AlertTriangle, Clock, Database } from "lucide-react";
+import { Activity, TrendingUp, ShieldCheck, AlertTriangle, Database, CheckCircle, Percent } from "lucide-react";
 
 const gradeColors: Record<string, string> = {
   A: "bg-emerald-500", B: "bg-blue-500", C: "bg-yellow-500",
@@ -18,6 +18,7 @@ export default function DashboardPage() {
   const overview = useQuery<PlatformOverview>({
     queryKey: ["overview"],
     queryFn: () => api.overview(),
+    refetchInterval: 30_000,
   });
 
   const liveMatches = useQuery<MatchOverview[]>({
@@ -26,8 +27,15 @@ export default function DashboardPage() {
     refetchInterval: 5000,
   });
 
+  const quality = useQuery({
+    queryKey: ["qualityDistribution"],
+    queryFn: () => api.qualityDistribution(),
+    refetchInterval: 60_000,
+  });
+
   const o = overview.data;
   const live = liveMatches.data ?? [];
+  const q = quality.data;
 
   return (
     <div className="space-y-6">
@@ -35,9 +43,9 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-4 gap-4">
         <StatCard
-          title="Total Matches Today"
-          value={o?.total_matches_today ?? "—"}
-          icon={<Activity className="h-4 w-4" />}
+          title="Total Matches"
+          value={o?.total_matches ?? "—"}
+          icon={<Database className="h-4 w-4" />}
         />
         <StatCard
           title="Live Matches"
@@ -46,70 +54,83 @@ export default function DashboardPage() {
           color="#22c55e"
         />
         <StatCard
-          title="Collectors Running"
-          value={o?.collectors_running ?? "—"}
-          icon={<Database className="h-4 w-4" />}
+          title="Finished Matches"
+          value={o?.finished_matches ?? "—"}
+          icon={<CheckCircle className="h-4 w-4" />}
         />
         <StatCard
-          title="Incidents Today"
-          value={o?.incidents_today ?? "—"}
-          icon={<AlertTriangle className="h-4 w-4" />}
-          color={Number(o?.incidents_today ?? 0) > 0 ? "#ef4444" : undefined}
+          title="Total Players"
+          value={o?.total_players ?? "—"}
+          icon={<ShieldCheck className="h-4 w-4" />}
         />
       </div>
 
       <div className="grid grid-cols-4 gap-4">
         <StatCard
-          title="DB Size"
-          value={o?.db_size ?? "—"}
-          icon={<Database className="h-4 w-4" />}
+          title="Open Incidents"
+          value={o?.open_incidents ?? "—"}
+          icon={<AlertTriangle className="h-4 w-4" />}
+          color={Number(o?.open_incidents ?? 0) > 0 ? "#ef4444" : undefined}
         />
         <StatCard
-          title="Repairs Needed"
-          value={o?.repairs_needed ?? "—"}
+          title="Validation Pass Rate"
+          value={o?.validation_pass_pct != null ? `${o.validation_pass_pct}%` : "—"}
+          icon={<CheckCircle className="h-4 w-4" />}
+          trend={o?.validation_pass_pct != null && o.validation_pass_pct > 50 ? "up" : "down"}
+        />
+        <StatCard
+          title="Odds Coverage"
+          value={o?.odds_coverage_pct != null ? `${o.odds_coverage_pct}%` : "—"}
+          icon={<Percent className="h-4 w-4" />}
+        />
+        <StatCard
+          title="Avg Quality Score"
+          value={o?.avg_quality_score != null ? String(o.avg_quality_score) : "—"}
           icon={<TrendingUp className="h-4 w-4" />}
-          color={Number(o?.repairs_needed ?? 0) > 0 ? "#f59e0b" : undefined}
-        />
-        <StatCard
-          title="Uptime"
-          value={o?.uptime ?? "—"}
-          icon={<Clock className="h-4 w-4" />}
-        />
-        <StatCard
-          title="Version"
-          value={o?.version ?? "—"}
-          icon={<ShieldCheck className="h-4 w-4" />}
+          trend={o?.avg_quality_score != null && o.avg_quality_score > 50 ? "up" : "down"}
         />
       </div>
 
       <div className="grid grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-slate-300">Quality Distribution (placeholder)</CardTitle>
+            <CardTitle className="text-sm font-medium text-slate-300">
+              Quality Distribution
+              {q && (
+                <Badge variant="outline" className="ml-2 text-xs">
+                  {q.total_matches} total
+                </Badge>
+              )}
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2 text-sm text-slate-400">
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-24 rounded bg-emerald-500/50" />
-                <span>Grade A</span>
+            {quality.isLoading ? (
+              <p className="text-sm text-slate-500">Loading...</p>
+            ) : q?.distribution?.length ? (
+              <div className="space-y-2 text-sm">
+                {q.distribution.map(({ grade, count, percentage }) => (
+                  <div key={grade} className="flex items-center gap-2">
+                    <span className="w-4 text-xs font-mono text-slate-400">{grade}</span>
+                    <div className="flex-1 h-4 rounded bg-slate-800 overflow-hidden">
+                      <div
+                        className={`h-full rounded ${gradeColors[grade] || "bg-slate-600"} transition-all`}
+                        style={{ width: `${Math.max(percentage, 2)}%` }}
+                      />
+                    </div>
+                    <span className="w-12 text-right text-xs text-slate-400">{count}</span>
+                    <span className="w-12 text-right text-xs text-slate-500">({percentage}%)</span>
+                  </div>
+                ))}
+                {q.avg_quality_score != null && (
+                  <div className="mt-3 pt-3 border-t border-slate-800 flex justify-between text-xs text-slate-400">
+                    <span>Average Quality Score</span>
+                    <span className="font-mono text-slate-200">{q.avg_quality_score.toFixed(1)}</span>
+                  </div>
+                )}
               </div>
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-16 rounded bg-blue-500/50" />
-                <span>Grade B</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-10 rounded bg-yellow-500/50" />
-                <span>Grade C</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-6 rounded bg-orange-500/50" />
-                <span>Grade D</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-4 rounded bg-red-500/50" />
-                <span>Grade F</span>
-              </div>
-            </div>
+            ) : (
+              <p className="text-sm text-slate-500">No completed matches yet</p>
+            )}
           </CardContent>
         </Card>
 

@@ -44,6 +44,12 @@ app.add_middleware(
 
 app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
 
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "version": "4.0.0"}
+
+
 from console_api.routers import (
     analytics,
     collectors,
@@ -110,8 +116,3 @@ async def serve_console(full_path: str):
 
     from fastapi.responses import JSONResponse
     return JSONResponse({"detail": "Console not built yet"}, status_code=503)
-
-
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "version": "4.0.0"}

@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type VerificationHealthPoint } from "@/lib/api";
+import { api } from "@/lib/api";
 import { StatCard } from "@/components/layout/StatCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -10,14 +10,14 @@ import { FileCheck, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 
 export default function VerificationPage() {
-  const { data, isLoading, error } = useQuery<VerificationHealthPoint[]>({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["verificationHistory"],
     queryFn: () => api.verificationHistory(),
   });
 
-  const history = data ?? [];
-  const latest = history[history.length - 1];
-  const previous = history[history.length - 2];
+  const history = data?.history ?? [];
+  const latest = history[history.length - 1] as any;
+  const previous = history[history.length - 2] as any;
 
   const trend =
     latest && previous

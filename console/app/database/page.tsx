@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type DbTable, type DbTableDetail } from "@/lib/api";
+import { api, type DbTablesResponse, type DbTableDetail } from "@/lib/api";
 import { DataTable } from "@/components/data/DataTable";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -13,10 +13,12 @@ export default function DatabasePage() {
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [rowFilter, setRowFilter] = useState("");
 
-  const tables = useQuery<DbTable[]>({
+  const tables = useQuery<DbTablesResponse>({
     queryKey: ["dbTables"],
     queryFn: () => api.dbTables(),
   });
+
+  const tableList = tables.data?.tables ?? [];
 
   const tableDetail = useQuery<DbTableDetail>({
     queryKey: ["dbTable", selectedTable],
@@ -25,14 +27,14 @@ export default function DatabasePage() {
   });
 
   const tableCols = [
-    { field: "name", headerName: "Table Name", flex: 2 },
+    { field: "table", headerName: "Table Name", flex: 2 },
     { field: "schema", headerName: "Schema", flex: 1 },
     { field: "row_count", headerName: "Rows", width: 120, type: "numericColumn" },
     { field: "size", headerName: "Size", width: 100 },
     { field: "last_vacuum", headerName: "Last Vacuum", flex: 1.5 },
   ];
 
-  const sampleRows = tableDetail.data?.sample_rows ?? [];
+  const sampleRows = tableDetail.data?.rows ?? [];
   const filteredRows = rowFilter
     ? sampleRows.filter((row) =>
         Object.values(row).some((val) =>
@@ -41,9 +43,9 @@ export default function DatabasePage() {
       )
     : sampleRows;
 
-  const detailCols = tableDetail.data?.columns.map((col) => ({
-    field: col.name,
-    headerName: col.name,
+  const detailCols = tableDetail.data?.columns.map((colName: string) => ({
+    field: colName,
+    headerName: colName,
     flex: 1,
     minWidth: 120,
   })) ?? [];
@@ -63,23 +65,23 @@ export default function DatabasePage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-sm">
                   <Database className="h-4 w-4" />
-                  Tables ({tables.data?.length ?? 0})
+                  Tables ({tableList.length})
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-1">
-                {tables.data?.map((t) => (
+                {tableList.map((t) => (
                   <button
-                    key={t.name}
-                    onClick={() => setSelectedTable(t.name)}
+                    key={t.table}
+                    onClick={() => setSelectedTable(t.table)}
                     className={`flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm transition-colors ${
-                      selectedTable === t.name
+                      selectedTable === t.table
                         ? "bg-emerald-600/20 text-emerald-400"
                         : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
                     }`}
                   >
                     <div className="flex items-center gap-2">
                       <Table className="h-3 w-3" />
-                      <span>{t.name}</span>
+                      <span>{t.table}</span>
                     </div>
                     <Badge variant="outline" className="text-xs">{t.row_count}</Badge>
                   </button>
@@ -106,7 +108,7 @@ export default function DatabasePage() {
                   <div className="flex items-center gap-3">
                     <h2 className="font-semibold text-slate-200">{selectedTable}</h2>
                     <Badge variant="outline">
-                      {tableDetail.data?.row_count ?? 0} rows
+                      {tableDetail.data?.rows.length ?? 0} rows
                     </Badge>
                     <span className="text-xs text-slate-500">
                       {tableDetail.data?.columns.length ?? 0} columns

@@ -21,16 +21,16 @@ export default function TimelinePage() {
   const [severityFilter, setSeverityFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
 
-  const { data, isLoading, error } = useQuery<TimelineEntry[]>({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["timeline"],
     queryFn: () => api.timeline(),
   });
 
-  const entries = data ?? [];
+  const entries = data?.items ?? [];
 
   const filtered = useMemo(() => {
-    return entries.filter((e) => {
-      if (severityFilter && e.event_type !== severityFilter) return false;
+    return entries.filter((e: any) => {
+      if (severityFilter && e.level !== severityFilter) return false;
       if (sourceFilter && !e.source.toLowerCase().includes(sourceFilter.toLowerCase())) return false;
       return true;
     });
@@ -85,17 +85,17 @@ export default function TimelinePage() {
                 <div className="mb-2 flex items-center gap-2">
                   <span className="text-xs text-slate-500">{formatDate(entry.timestamp)}</span>
                   <Badge variant="outline" className="text-xs">{entry.source}</Badge>
-                  {severityBadge(entry.event_type)}
-                  {entry.match_id && (
+                  {severityBadge(entry.level)}
+                  {entry.tracked_match_id && (
                     <button
-                      onClick={() => router.push(`/matches/${entry.match_id}`)}
+                      onClick={() => router.push(`/matches/${entry.tracked_match_id}`)}
                       className="ml-auto flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300"
                     >
-                      <ExternalLink className="h-3 w-3" /> Match #{entry.match_id}
+                      <ExternalLink className="h-3 w-3" /> Match #{entry.tracked_match_id}
                     </button>
                   )}
                 </div>
-                <p className="text-sm text-slate-300">{entry.description}</p>
+                <p className="text-sm text-slate-300">{entry.message}</p>
                 {entry.event_id && (
                   <p className="mt-1 text-xs text-slate-600">Event: {entry.event_id}</p>
                 )}

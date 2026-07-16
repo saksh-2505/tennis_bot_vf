@@ -2,20 +2,61 @@
 
 import React from "react";
 import { usePathname } from "next/navigation";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useQuery, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "react-hot-toast";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { api } from "@/lib/api";
+import type { PlatformOverview } from "@/lib/api";
 import "@/app/globals.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
-      refetchInterval: 15_000,
       retry: 1,
     },
   },
 });
+
+function TopBar() {
+  const overview = useQuery<PlatformOverview>({
+    queryKey: ["overview"],
+    queryFn: () => api.overview(),
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+  });
+
+  const now = new Date().toLocaleTimeString();
+
+  return (
+    <div className="mb-6 flex items-center gap-4 rounded-lg border border-slate-800 bg-slate-900 px-4 py-2 text-sm">
+      <div className="flex items-center gap-2">
+        <div className="h-2 w-2 rounded-full bg-emerald-500" />
+        <span className="text-slate-400">DB:</span>
+        <span className="font-medium text-emerald-400">Connected</span>
+      </div>
+      <div className="text-slate-600">|</div>
+      <div className="flex items-center gap-2">
+        <span className="text-slate-400">Live Matches:</span>
+        <span className="font-medium text-slate-200">
+          {overview.isLoading ? "—" : overview.data?.live_matches ?? "—"}
+        </span>
+      </div>
+      <div className="text-slate-600">|</div>
+      <div className="flex items-center gap-2">
+        <span className="text-slate-400">Finished:</span>
+        <span className="font-medium text-slate-200">
+          {overview.isLoading ? "—" : overview.data?.finished_matches ?? "—"}
+        </span>
+      </div>
+      <div className="text-slate-600">|</div>
+      <div className="flex items-center gap-2">
+        <span className="text-slate-400">Last Refresh:</span>
+        <span className="font-medium text-slate-200">{now}</span>
+      </div>
+    </div>
+  );
+}
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -32,23 +73,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="flex min-h-screen">
             <Sidebar pathname={pathname} />
             <main className="ml-[280px] flex-1 p-6">
-              <div className="mb-6 flex items-center gap-4 rounded-lg border border-slate-800 bg-slate-900 px-4 py-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-emerald-500" />
-                  <span className="text-slate-400">DB:</span>
-                  <span className="font-medium text-emerald-400">Connected</span>
-                </div>
-                <div className="text-slate-600">|</div>
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-400">Live Matches:</span>
-                  <span className="font-medium text-slate-200">—</span>
-                </div>
-                <div className="text-slate-600">|</div>
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-400">Last Refresh:</span>
-                  <span className="font-medium text-slate-200">—</span>
-                </div>
-              </div>
+              <TopBar />
               {children}
             </main>
           </div>

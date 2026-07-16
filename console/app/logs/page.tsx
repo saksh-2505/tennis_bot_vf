@@ -25,12 +25,12 @@ export default function LogsPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  const { data, isLoading, error } = useQuery<TimelineEntry[]>({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["timeline"],
     queryFn: () => api.timeline(),
   });
 
-  const entries = data ?? [];
+  const entries = data?.items ?? [];
 
   const sources = useMemo(() => {
     const set = new Set(entries.map((e) => e.source));
@@ -47,14 +47,15 @@ export default function LogsPage() {
 
   const filtered = useMemo(() => {
     return entries.filter((e) => {
-      if (severity && e.event_type !== severity) return false;
+      if (severity && e.level !== severity) return false;
       if (sourceFilter && !e.source.toLowerCase().includes(sourceFilter.toLowerCase())) return false;
       if (textSearch) {
         const q = textSearch.toLowerCase();
-        if (!e.description.toLowerCase().includes(q) && !e.source.toLowerCase().includes(q)) return false;
+        if (!e.message.toLowerCase().includes(q) && !e.source.toLowerCase().includes(q)) return false;
       }
-      if (dateFrom && e.timestamp < dateFrom) return false;
-      if (dateTo && e.timestamp > dateTo + "T23:59:59") return false;
+      const ts = e.timestamp || "";
+      if (dateFrom && ts < dateFrom) return false;
+      if (dateTo && ts > dateTo + "T23:59:59") return false;
       return true;
     });
   }, [entries, severity, sourceFilter, textSearch, dateFrom, dateTo]);
@@ -120,9 +121,9 @@ export default function LogsPage() {
             <div
               key={i}
               className={`flex items-start gap-3 rounded border p-3 text-sm ${
-                entry.event_type === "CRITICAL" || entry.event_type === "ERROR"
+                entry.level === "CRITICAL" || entry.level === "ERROR"
                   ? "border-red-500/30 bg-red-500/5"
-                  : entry.event_type === "WARNING"
+                  : entry.level === "WARNING"
                     ? "border-yellow-500/30 bg-yellow-500/5"
                     : "border-slate-800 bg-slate-900"
               }`}
@@ -135,17 +136,17 @@ export default function LogsPage() {
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  {severityBadge(entry.event_type)}
-                  {entry.match_id && (
+                  {severityBadge(entry.level)}
+                  {entry.tracked_match_id && (
                     <button
-                      onClick={() => router.push(`/matches/${entry.match_id}`)}
+                      onClick={() => router.push(`/matches/${entry.tracked_match_id}`)}
                       className="flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300"
                     >
-                      <ExternalLink className="h-3 w-3" /> Match #{entry.match_id}
+                      <ExternalLink className="h-3 w-3" /> Match #{entry.tracked_match_id}
                     </button>
                   )}
                 </div>
-                <p className="mt-1 text-slate-300">{entry.description}</p>
+                <p className="mt-1 text-slate-300">{entry.message}</p>
                 {entry.event_id && (
                   <p className="mt-0.5 text-xs text-slate-600">Event ID: {entry.event_id}</p>
                 )}

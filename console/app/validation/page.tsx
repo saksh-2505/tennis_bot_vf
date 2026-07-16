@@ -6,7 +6,6 @@ import { api, type ValidationSummary } from "@/lib/api";
 import { StatCard } from "@/components/layout/StatCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { CheckCircle, XCircle, ShieldCheck, Target } from "lucide-react";
-import { formatPct } from "@/lib/utils";
 
 export default function ValidationPage() {
   const { data, isLoading, error } = useQuery<ValidationSummary>({
@@ -22,26 +21,26 @@ export default function ValidationPage() {
 
       <div className="grid grid-cols-4 gap-4">
         <StatCard
-          title="Total Checks"
-          value={isLoading ? "—" : s?.total_checks ?? "—"}
+          title="Total Completed"
+          value={isLoading ? "—" : s?.total_completed ?? "—"}
           icon={<Target className="h-4 w-4" />}
         />
         <StatCard
-          title="Passed"
-          value={isLoading ? "—" : s?.passed ?? "—"}
+          title="Validation Passed"
+          value={isLoading ? "—" : s?.validation_passed ?? "—"}
           icon={<CheckCircle className="h-4 w-4 text-emerald-400" />}
           color="#22c55e"
         />
         <StatCard
-          title="Failed"
-          value={isLoading ? "—" : s?.failed ?? "—"}
+          title="Validation Failed"
+          value={isLoading ? "—" : s?.validation_failed ?? "—"}
           icon={<XCircle className="h-4 w-4 text-red-400" />}
-          color={s && s.failed > 0 ? "#ef4444" : "#22c55e"}
+          color={s && s.validation_failed > 0 ? "#ef4444" : "#22c55e"}
         />
         <StatCard
           title="Pass Rate"
-          value={isLoading ? "—" : formatPct(s?.pass_rate ?? null)}
-          color={s && s.pass_rate >= 90 ? "#22c55e" : s && s.pass_rate >= 70 ? "#f59e0b" : "#ef4444"}
+          value={isLoading ? "—" : s ? `${s.validation_pass_pct}%` : "—"}
+          color={s && s.validation_pass_pct >= 90 ? "#22c55e" : s && s.validation_pass_pct >= 70 ? "#f59e0b" : "#ef4444"}
         />
       </div>
 
@@ -49,9 +48,7 @@ export default function ValidationPage() {
         <p className="text-sm text-slate-500">Loading...</p>
       ) : error ? (
         <p className="text-sm text-red-400">Error loading validation data</p>
-      ) : !s ? (
-        <p className="text-sm text-slate-500">No validation data</p>
-      ) : (
+      ) : s ? (
         <div className="space-y-4">
           <div className="flex gap-4">
             <div className="flex-1 rounded-lg border border-slate-800 bg-slate-900 p-6">
@@ -62,62 +59,51 @@ export default function ValidationPage() {
               <div className="flex h-8 w-full overflow-hidden rounded bg-slate-800">
                 <div
                   className="flex items-center justify-center bg-emerald-600 text-xs font-bold text-white transition-all"
-                  style={{ width: `${s.pass_rate}%` }}
+                  style={{ width: `${s.validation_pass_pct}%` }}
                 >
-                  {s.pass_rate.toFixed(0)}%
+                  {s.validation_pass_pct}%
                 </div>
                 <div
                   className="flex items-center justify-center bg-red-600 text-xs font-bold text-white transition-all"
-                  style={{ width: `${100 - s.pass_rate}%` }}
+                  style={{ width: `${100 - s.validation_pass_pct}%` }}
                 >
-                  {(100 - s.pass_rate).toFixed(0)}%
+                  {(100 - s.validation_pass_pct).toFixed(0)}%
                 </div>
               </div>
               <div className="mt-3 flex justify-between text-xs text-slate-500">
-                <span>Passed: {s.passed}</span>
-                <span>Failed: {s.failed}</span>
+                <span>Passed: {s.validation_passed}</span>
+                <span>Failed: {s.validation_failed}</span>
               </div>
             </div>
           </div>
 
-          {Object.keys(s.by_check_type).length > 0 && (
+          <div className="grid grid-cols-2 gap-4">
             <Card>
               <CardHeader>
-                <CardTitle className="text-sm">By Check Type</CardTitle>
+                <CardTitle className="text-sm">Ready for Replay</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2">
-                  {Object.entries(s.by_check_type).map(([type, counts]) => {
-                    const total = counts.passed + counts.failed;
-                    const pct = total > 0 ? (counts.passed / total) * 100 : 0;
-                    return (
-                      <div key={type} className="rounded border border-slate-800 p-3">
-                        <div className="mb-1 flex items-center justify-between text-sm">
-                          <span className="text-slate-300">{type}</span>
-                          <span className="text-xs text-slate-500">{total} checks</span>
-                        </div>
-                        <div className="flex h-3 w-full overflow-hidden rounded bg-slate-800">
-                          <div
-                            className="bg-emerald-500 transition-all"
-                            style={{ width: `${pct}%` }}
-                          />
-                          <div
-                            className="bg-red-500 transition-all"
-                            style={{ width: `${100 - pct}%` }}
-                          />
-                        </div>
-                        <div className="mt-1 flex justify-between text-xs text-slate-500">
-                          <span className="text-emerald-400">{counts.passed} passed</span>
-                          <span className="text-red-400">{counts.failed} failed</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <span className="text-2xl font-bold text-slate-100">{s.ready_for_replay}</span>
+                <span className="ml-2 text-sm text-slate-500">
+                  ({(s.ready_for_replay / Math.max(s.total_completed, 1) * 100).toFixed(1)}%)
+                </span>
               </CardContent>
             </Card>
-          )}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Ready for Backtesting</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <span className="text-2xl font-bold text-slate-100">{s.ready_for_backtesting}</span>
+                <span className="ml-2 text-sm text-slate-500">
+                  ({(s.ready_for_backtesting / Math.max(s.total_completed, 1) * 100).toFixed(1)}%)
+                </span>
+              </CardContent>
+            </Card>
+          </div>
         </div>
+      ) : (
+        <p className="text-sm text-slate-500">No validation data</p>
       )}
     </div>
   );

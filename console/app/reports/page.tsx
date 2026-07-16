@@ -2,14 +2,12 @@
 
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type Report } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
+import { api } from "@/lib/api";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { StatCard } from "@/components/layout/StatCard";
-import { formatDate } from "@/lib/utils";
-import { FileText, Download, Clock, Database } from "lucide-react";
+import { FileText } from "lucide-react";
 
-const reportIcons: Record<string, string> = {
+const reportLabels: Record<string, string> = {
   market_matching: "Market Matching",
   odds_coverage: "Odds Coverage",
   collection: "Collection",
@@ -19,72 +17,56 @@ const reportIcons: Record<string, string> = {
 };
 
 export default function ReportsPage() {
-  const { data, isLoading, error } = useQuery<Report[]>({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["reports"],
     queryFn: () => api.reports(),
   });
 
-  const reports = data ?? [];
-
-  const totalSize = reports.reduce((sum, r) => sum + (r.size_bytes || 0), 0);
-  const generatedCount = reports.filter((r) => r.status === "completed").length;
+  const reports = (data ?? {}) as Record<string, any>;
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-slate-100">Reports</h1>
 
-      <div className="grid grid-cols-4 gap-4">
-        <StatCard title="Total Reports" value={reports.length} icon={<FileText className="h-4 w-4" />} />
-        <StatCard
-          title="Generated"
-          value={isLoading ? "—" : generatedCount}
-          icon={<Download className="h-4 w-4 text-emerald-400" />}
-          color="#22c55e"
-        />
-        <StatCard
-          title="Total Size"
-          value={totalSize ? `${(totalSize / 1024).toFixed(1)} KB` : "—"}
-          icon={<Database className="h-4 w-4" />}
-        />
-        <StatCard
-          title="Pending"
-          value={reports.filter((r) => r.status !== "completed").length}
-          icon={<Clock className="h-4 w-4" />}
-        />
-      </div>
-
       {isLoading ? (
         <p className="text-sm text-slate-500">Loading...</p>
       ) : error ? (
         <p className="text-sm text-red-400">Error loading reports</p>
-      ) : reports.length === 0 ? (
-        <p className="text-sm text-slate-500">No reports available</p>
+      ) : Object.keys(reports).length === 0 ? (
+        <p className="text-sm text-slate-500">No reports generated yet</p>
       ) : (
-        <div className="grid grid-cols-2 gap-4">
-          {reports.map((report) => (
-            <Card key={report.id}>
-              <CardHeader className="flex flex-row items-start justify-between">
-                <div>
-                  <CardTitle className="text-sm">{report.title}</CardTitle>
-                  <CardDescription className="text-xs">
-                    {reportIcons[report.report_type] || report.report_type}
-                  </CardDescription>
-                </div>
-                <Badge
-                  variant={report.status === "completed" ? "success" : "warning"}
-                >
-                  {report.status}
-                </Badge>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between text-xs text-slate-500">
-                  <span>{formatDate(report.generated_at)}</span>
-                  <span>{report.format?.toUpperCase()}</span>
-                  <span>{report.size_bytes ? `${(report.size_bytes / 1024).toFixed(1)} KB` : "—"}</span>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {Object.entries(reportLabels).map(([key, label]) => {
+            const report = reports[key] as any;
+            if (!report) return null;
+            return (
+              <Card key={key}>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <FileText className="h-4 w-4" />
+                    {label}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-1 text-xs text-slate-400">
+                    {Object.entries(report).map(([k, v]) => {
+                      if (k === "generated_at" || k === "ready_matches" || k === "by_tournament") return null;
+                      let display = "";
+                      if (typeof v === "number") display = v.toFixed(v === Math.round(v) ? 0 : 2);
+                      else if (typeof v === "object") display = JSON.stringify(v).slice(0, 80);
+                      else display = String(v);
+                      return (
+                        <div key={k} className="flex justify-between">
+                          <span>{k}</span>
+                          <span className="text-slate-200">{display}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

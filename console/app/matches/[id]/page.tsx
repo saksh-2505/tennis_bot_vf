@@ -3,7 +3,7 @@
 import React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { api, type MatchDetail, type ScorePoint, type OddsPoint, type Incident } from "@/lib/api";
+import { api, type MatchDetail, type ScorePoint, type OddsPoint, type IncidentSummary } from "@/lib/api";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -36,7 +36,7 @@ export default function MatchDetailPage() {
     enabled: !isNaN(id),
   });
 
-  const { data: incidents } = useQuery<Incident[]>({
+  const { data: incidents } = useQuery({
     queryKey: ["incidents"],
     queryFn: () => api.incidents(),
   });
@@ -61,7 +61,7 @@ export default function MatchDetailPage() {
     );
   }
 
-  const relatedIncidents = incidents?.filter((inc) => inc.event_id === match.event_id) ?? [];
+  const relatedIncidents = incidents?.items?.filter((inc: any) => inc.tracked_match_id === id) ?? [];
   const scorePoints = scores ?? match.scores ?? [];
   const oddsPoints = odds ?? match.odds ?? [];
 
@@ -76,10 +76,10 @@ export default function MatchDetailPage() {
     { field: "timestamp", headerName: "Timestamp", valueFormatter: (p: any) => formatDate(p.value), flex: 2 },
     { field: "set_score_a", headerName: "Set A", width: 90 },
     { field: "set_score_b", headerName: "Set B", width: 90 },
-    { field: "game_score_a", headerName: "Game A", width: 90 },
-    { field: "game_score_b", headerName: "Game B", width: 90 },
-    { field: "point_score_a", headerName: "Point A", width: 90 },
-    { field: "point_score_b", headerName: "Point B", width: 90 },
+    { field: "live_score_game_a", headerName: "Game A", width: 90 },
+    { field: "live_score_game_b", headerName: "Game B", width: 90 },
+    { field: "live_score_point", headerName: "Point A", width: 90 },
+    { field: "live_score_point", headerName: "Point B", width: 90 },
     { field: "serving_player", headerName: "Server", width: 120 },
   ];
 
@@ -115,7 +115,7 @@ export default function MatchDetailPage() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-100">
-            {match.player_a} <span className="text-slate-500 text-lg">vs</span> {match.player_b}
+            {match.player1_name} <span className="text-slate-500 text-lg">vs</span> {match.player2_name}
           </h1>
           <p className="text-sm text-slate-400">{match.tournament} — {match.round}</p>
         </div>
@@ -144,17 +144,11 @@ export default function MatchDetailPage() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div>
                   <span className="block text-xs text-slate-500">Player A</span>
-                  <span className="text-slate-200 font-medium">{match.player_a}</span>
-                  {match.player_a_rank != null && (
-                    <span className="ml-1 text-xs text-slate-500">#{match.player_a_rank}</span>
-                  )}
+                  <span className="text-slate-200 font-medium">{match.player1_name}</span>
                 </div>
                 <div>
                   <span className="block text-xs text-slate-500">Player B</span>
-                  <span className="text-slate-200 font-medium">{match.player_b}</span>
-                  {match.player_b_rank != null && (
-                    <span className="ml-1 text-xs text-slate-500">#{match.player_b_rank}</span>
-                  )}
+                  <span className="text-slate-200 font-medium">{match.player2_name}</span>
                 </div>
                 <div>
                   <span className="block text-xs text-slate-500">Tournament</span>
@@ -170,11 +164,11 @@ export default function MatchDetailPage() {
                 </div>
                 <div>
                   <span className="block text-xs text-slate-500">Start Time</span>
-                  <span className="text-slate-200">{formatDate(match.start_time)}</span>
+                  <span className="text-slate-200">{formatDate(match.scheduled_start)}</span>
                 </div>
                 <div>
                   <span className="block text-xs text-slate-500">Last Poll</span>
-                  <span className="text-slate-200">{formatDate(match.last_poll_time)}</span>
+                  <span className="text-slate-200">{formatDate(match.last_score_poll)}</span>
                 </div>
                 <div>
                   <span className="block text-xs text-slate-500">Quality Grade</span>
@@ -184,21 +178,27 @@ export default function MatchDetailPage() {
                   <div className="col-span-2">
                     <span className="block text-xs text-slate-500">Live Score</span>
                     <span className="font-mono text-lg font-bold text-slate-100">
-                      {match.set_score_a}-{match.set_score_b} ({match.game_score_a}-{match.game_score_b})
-                      {match.point_score_a && ` ${match.point_score_a}-${match.point_score_b}`}
+                      {match.live_score_set_a}-{match.live_score_set_b} ({match.live_score_game_a}-{match.live_score_game_b})
+                      {match.live_score_point && ` ${match.live_score_point}-${match.live_score_point}`}
                     </span>
                   </div>
                 )}
-                {match.odds_avg != null && (
+                {match.live_odds_a != null && (
                   <div>
-                    <span className="block text-xs text-slate-500">Avg Odds</span>
-                    <span className="text-slate-200">{match.odds_avg.toFixed(2)}</span>
+                    <span className="block text-xs text-slate-500">Odds A</span>
+                    <span className="text-slate-200">{match.live_odds_a.toFixed(2)}</span>
                   </div>
                 )}
-                {match.collector_name && (
+                {match.live_odds_b != null && (
+                  <div>
+                    <span className="block text-xs text-slate-500">Odds B</span>
+                    <span className="text-slate-200">{match.live_odds_b.toFixed(2)}</span>
+                  </div>
+                )}
+                {match.live_score_server && (
                   <div>
                     <span className="block text-xs text-slate-500">Collector</span>
-                    <span className="text-slate-200">{match.collector_name}</span>
+                    <span className="text-slate-200">{match.live_score_server}</span>
                   </div>
                 )}
               </div>
@@ -247,22 +247,6 @@ export default function MatchDetailPage() {
                 </CardContent>
               </Card>
             )}
-            {match.timeline && match.timeline.length > 0 && (
-              <Card>
-                <CardHeader><CardTitle className="text-sm">Event Timeline</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {match.timeline.map((evt, i) => (
-                      <div key={i} className="flex items-start gap-3 border-b border-slate-800 pb-2 text-sm">
-                        <span className="whitespace-nowrap text-slate-500">{formatDate(evt.timestamp)}</span>
-                        <Badge variant="outline" className="shrink-0">{evt.event_type}</Badge>
-                        <span className="text-slate-300">{evt.description}</span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </div>
         </TabsContent>
 
@@ -275,11 +259,11 @@ export default function MatchDetailPage() {
                   <div className="grid grid-cols-3 gap-4">
                     <div className="rounded-lg border border-slate-800 bg-slate-800/50 p-3">
                       <span className="block text-xs text-slate-500">Final Set Score</span>
-                      <span className="text-lg font-bold text-slate-100">{match.set_score_a}-{match.set_score_b}</span>
+                      <span className="text-lg font-bold text-slate-100">{match.live_score_set_a}-{match.live_score_set_b}</span>
                     </div>
                     <div className="rounded-lg border border-slate-800 bg-slate-800/50 p-3">
                       <span className="block text-xs text-slate-500">Game Score</span>
-                      <span className="text-lg font-bold text-slate-100">{match.game_score_a}-{match.game_score_b}</span>
+                      <span className="text-lg font-bold text-slate-100">{match.live_score_game_a}-{match.live_score_game_b}</span>
                     </div>
                     <div className="rounded-lg border border-slate-800 bg-slate-800/50 p-3">
                       <span className="block text-xs text-slate-500">Score Ticks</span>
@@ -288,14 +272,14 @@ export default function MatchDetailPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex items-center gap-2 rounded border border-slate-800 p-2 text-sm">
-                      {match.matched ? (
+                      {match.betting_market_id ? (
                         <CheckCircle className="h-4 w-4 text-emerald-400" />
                       ) : (
                         <XCircle className="h-4 w-4 text-red-400" />
                       )}
-                      <span className="text-slate-400">Market Matched</span>
-                      <Badge variant={match.matched ? "success" : "destructive"} className="ml-auto">
-                        {match.matched ? "Yes" : "No"}
+                      <span className="text-slate-400">Market Assigned</span>
+                      <Badge variant={match.betting_market_id ? "success" : "destructive"} className="ml-auto">
+                        {match.betting_market_id ? "Yes" : "No"}
                       </Badge>
                     </div>
                     <div className="flex items-center gap-2 rounded border border-slate-800 p-2 text-sm">
@@ -315,13 +299,9 @@ export default function MatchDetailPage() {
                       <Badge variant="success" className="ml-auto">{oddsPoints.length}</Badge>
                     </div>
                     <div className="flex items-center gap-2 rounded border border-slate-800 p-2 text-sm">
-                      {match.collector_name ? (
-                        <CheckCircle className="h-4 w-4 text-emerald-400" />
-                      ) : (
-                        <XCircle className="h-4 w-4 text-slate-600" />
-                      )}
-                      <span className="text-slate-400">Collector</span>
-                      <span className="ml-auto text-xs text-slate-500">{match.collector_name || "None"}</span>
+                      <CheckCircle className="h-4 w-4 text-slate-600" />
+                      <span className="text-slate-400">Live Score</span>
+                      <span className="ml-auto text-xs text-slate-500">{match.live_score_server || "—"}</span>
                     </div>
                   </div>
                 </div>
@@ -350,7 +330,7 @@ export default function MatchDetailPage() {
             <CardHeader><CardTitle className="text-sm">Match Attempts</CardTitle></CardHeader>
             <CardContent>
               <p className="text-sm text-slate-500">
-                No match attempt data available from API. Event ID: {match.event_id || "N/A"}
+                No match attempt data available from API. Event ID: {match.flashscore_match_id || "N/A"}
               </p>
             </CardContent>
           </Card>

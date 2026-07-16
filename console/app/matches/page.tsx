@@ -40,10 +40,13 @@ export default function MatchExplorerPage() {
   if (quality) params.quality = quality;
   if (search) params.query = search;
 
-  const { data, isLoading, error, refetch } = useQuery<MatchOverview[]>({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["searchMatches", params],
     queryFn: () => api.searchMatches(params),
   });
+
+  const matches = data?.items ?? [];
+  const total = data?.total ?? 0;
 
   const columnDefs = [
     {
@@ -54,8 +57,8 @@ export default function MatchExplorerPage() {
         <span className="font-mono text-xs text-slate-400">{params.value}</span>
       ),
     },
-    { field: "player_a", headerName: "Player A", flex: 2 },
-    { field: "player_b", headerName: "Player B", flex: 2 },
+    { field: "player1_name", headerName: "Player A", flex: 2 },
+    { field: "player2_name", headerName: "Player B", flex: 2 },
     { field: "tournament", headerName: "Tournament", flex: 1.5 },
     { field: "round", headerName: "Round", flex: 1 },
     {
@@ -135,11 +138,11 @@ export default function MatchExplorerPage() {
         <p className="text-sm text-slate-500">Loading...</p>
       ) : error ? (
         <p className="text-sm text-red-400">Error loading matches</p>
-      ) : !data || data.length === 0 ? (
+      ) : !data || matches.length === 0 ? (
         <p className="text-sm text-slate-500">No matches found</p>
       ) : (
         <DataTable
-          rowData={data}
+          rowData={matches}
           columnDefs={columnDefs}
           height={600}
         />
@@ -147,7 +150,7 @@ export default function MatchExplorerPage() {
 
       <div className="flex items-center justify-between">
         <span className="text-xs text-slate-500">
-          {data?.length ?? 0} results
+          {matches.length} results
         </span>
         <div className="flex gap-2">
           <Button
