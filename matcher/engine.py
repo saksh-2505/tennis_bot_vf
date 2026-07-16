@@ -325,7 +325,6 @@ def match_all(
         if tm.betting_market_id:
             continue
         result = match_market(
-        result = match_market(
             player1_name=tm.player1_name,
             player2_name=tm.player2_name,
             tournament=tm.tournament,
