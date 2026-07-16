@@ -16,7 +16,7 @@ class TrackedMatch(Base):
         String(32), unique=True, index=True, nullable=False
     )
     betting_market_id: Mapped[str | None] = mapped_column(
-        String(64), unique=True, index=True, nullable=True
+        String(64), index=True, nullable=True
     )
     player1_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     player2_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
