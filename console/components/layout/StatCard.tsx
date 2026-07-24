@@ -17,12 +17,16 @@ const trendIcons = {
   neutral: <Minus className="h-3 w-3 text-slate-400" />,
 };
 
-export function StatCard({ title, value, subtitle, icon, trend, color }: StatCardProps) {
+function StatCardImpl({ title, value, subtitle, icon, trend, color }: StatCardProps) {
   return (
     <div
+      // Previously had `border-l-${color}` — Tailwind JIT can't see a class
+      // built via template string, and call sites pass hex like "#22c55e"
+      // which isn't a valid Tailwind class anyway. Replaced with a static
+      // `border-l-2` and rely solely on the inline `style.borderLeftColor`.
       className={cn(
         "rounded-lg border border-slate-800 bg-slate-900 p-4 shadow-sm",
-        color && `border-l-2 border-l-${color}`
+        color && "border-l-2"
       )}
       style={color ? { borderLeftColor: color } : undefined}
     >
@@ -38,3 +42,7 @@ export function StatCard({ title, value, subtitle, icon, trend, color }: StatCar
     </div>
   );
 }
+
+// Memoize — parent pages (Dashboard) re-render every 30–60s on overview poll.
+// Without this each StatCard needlessly re-renders even when its value is unchanged.
+export const StatCard = React.memo(StatCardImpl);

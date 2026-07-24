@@ -67,6 +67,8 @@ def get_match_detail(match_id: int, db: Session = Depends(get_db)):
     incidents = _match_incidents(db, match_id)
     repairs = _match_repairs(db, match_id)
     attempts = _match_attempts(db, match_id)
+    latest_score = _latest_score(db, match_id)
+    latest_odds = _latest_odds(db, match_id)
 
     return MatchDetail(
         id=tm.id,
@@ -88,6 +90,20 @@ def get_match_detail(match_id: int, db: Session = Depends(get_db)):
         collection_started_at=tm.collection_started_at,
         created_at=tm.created_at,
         updated_at=tm.updated_at,
+        # Live snapshot — parity with MatchOverview (TS `MatchDetail extends MatchOverview`).
+        live_score_set_a=latest_score.get("set_score_a"),
+        live_score_set_b=latest_score.get("set_score_b"),
+        live_score_game_a=latest_score.get("game_score_a"),
+        live_score_game_b=latest_score.get("game_score_b"),
+        live_score_point=latest_score.get("point_score"),
+        live_score_server=latest_score.get("server"),
+        live_odds_a=latest_odds.get("back_odds_a"),
+        live_odds_b=latest_odds.get("back_odds_b"),
+        last_score_poll=latest_score.get("timestamp"),
+        last_odds_poll=latest_odds.get("timestamp"),
+        # Quality from completed_matches (mirrors `quality_grade`/`quality_score` on MatchOverview).
+        quality_grade=completed.get("quality_grade") if completed else None,
+        quality_score=completed.get("quality_score") if completed else None,
         completed=completed,
         scores=scores,
         odds=odds_data,
@@ -127,12 +143,23 @@ def search_matches(
     items = q.order_by(TrackedMatch.id.desc()).offset(offset).limit(limit).all()
 
     result = []
+    # Batch-fetch completed_matches for the page in one query instead of N+1.
+    ids = [tm.id for tm in items]
+    cm_map: dict = {}
+    if ids:
+        cm_rows = (
+            db.query(CompletedMatch)
+            .filter(CompletedMatch.tracked_match_id.in_(ids))
+            .all()
+        )
+        cm_map = {cm.tracked_match_id: cm for cm in cm_rows}
+
     for tm in items:
-        cm = None
-        if quality_grade or hasattr(tm, "id"):
-            cm = db.query(CompletedMatch).filter(
-                CompletedMatch.tracked_match_id == tm.id
-            ).first()
+        cm = cm_map.get(tm.id)
+        # quality_grade filter is honoured when set; previously had a tautology
+        # `hasattr(tm,"id")` that always ran the per-row query (N+1 for every page load).
+        if quality_grade and (cm is None or cm.quality_grade != quality_grade):
+            continue
 
         result.append({
             "id": tm.id,

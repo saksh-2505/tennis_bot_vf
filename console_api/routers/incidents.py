@@ -78,7 +78,8 @@ def get_incident_detail(incident_id: int, db: Session = Depends(get_db)):
         "title": r.title,
         "summary": r.summary,
         "incident_hash": r.incident_hash,
-        "first_detected_at": r.first_detected_at.isoformat() if r.first_detected_at else None,
+        # Field name parity with IncidentSummary / `TS IncidentDetail extends IncidentSummary`.
+        "first_detected": r.first_detected_at.isoformat() if r.first_detected_at else None,
         "last_detected_at": r.last_detected_at.isoformat() if r.last_detected_at else None,
         "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
         "occurrence_count": r.occurrence_count,

@@ -1,74 +1,98 @@
 "use client";
 
 import React from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import Link from "next/link";
+import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { FileText } from "lucide-react";
+import {
+  Link2, BarChart, Server, AlertTriangle,
+  ShieldCheck, PlayCircle, ArrowRight,
+} from "lucide-react";
 
-const reportLabels: Record<string, string> = {
-  market_matching: "Market Matching",
-  odds_coverage: "Odds Coverage",
-  collection: "Collection",
-  failure_distribution: "Failure Distribution",
-  dataset_quality: "Dataset Quality",
-  replay_readiness: "Replay Readiness",
-};
+// Index only — the previous page rendered each report's JSON via
+// `JSON.stringify(v).slice(0,80)` which was both lossy and a duplicate of the
+// dedicated pages already in the sidebar. This version routes users straight
+// to the richer dedicated page for each concern.
+const REPORT_LINKS: Array<{
+  key: string;
+  label: string;
+  url: string;
+  description: string;
+  icon: React.ReactNode;
+}> = [
+  {
+    key: "market_matching",
+    label: "Market Matching",
+    url: "/matching",
+    description: "Tracked matches with/without a betting market, confidence breakdown, and the unset unmatched queue.",
+    icon: <Link2 className="h-5 w-5" />,
+  },
+  {
+    key: "odds_coverage",
+    label: "Odds Coverage",
+    url: "/matches",
+    description: "Per-match odds tick counts and coverage ratios across finished matches.",
+    icon: <BarChart className="h-5 w-5" />,
+  },
+  {
+    key: "collection",
+    label: "Collection",
+    url: "/collectors",
+    description: "Per-collector health, record counts, heartbeat, and recent polling activity.",
+    icon: <Server className="h-5 w-5" />,
+  },
+  {
+    key: "failure_distribution",
+    label: "Failure Distribution",
+    url: "/quality",
+    description: "Failure-category breakdown across completed matches — which quality gates most matches fall at.",
+    icon: <AlertTriangle className="h-5 w-5" />,
+  },
+  {
+    key: "dataset_quality",
+    label: "Dataset Quality",
+    url: "/quality",
+    description: "Quality grade distribution A–F across the finalized match dataset.",
+    icon: <ShieldCheck className="h-5 w-5" />,
+  },
+  {
+    key: "replay_readiness",
+    label: "Replay Readiness",
+    url: "/validation",
+    description: "Validation pass rate, replay/backtest readiness flags, and completeness percentages.",
+    icon: <PlayCircle className="h-5 w-5" />,
+  },
+];
 
 export default function ReportsPage() {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["reports"],
-    queryFn: () => api.reports(),
-  });
-
-  const reports = (data ?? {}) as Record<string, any>;
-
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-slate-100">Reports</h1>
-
-      {isLoading ? (
-        <p className="text-sm text-slate-500">Loading...</p>
-      ) : error ? (
-        <p className="text-sm text-red-400">Error loading reports</p>
-      ) : Object.keys(reports).length === 0 ? (
-        <p className="text-sm text-slate-500">No reports generated yet</p>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {Object.entries(reportLabels).map(([key, label]) => {
-            const report = reports[key] as any;
-            if (!report) return null;
-            return (
-              <Card key={key}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-sm">
-                    <FileText className="h-4 w-4" />
-                    {label}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-1 text-xs text-slate-400">
-                    {Object.entries(report).map(([k, v]) => {
-                      if (k === "generated_at" || k === "ready_matches" || k === "by_tournament") return null;
-                      let display = "";
-                      if (typeof v === "number") display = v.toFixed(v === Math.round(v) ? 0 : 2);
-                      else if (typeof v === "object") display = JSON.stringify(v).slice(0, 80);
-                      else display = String(v);
-                      return (
-                        <div key={k} className="flex justify-between">
-                          <span>{k}</span>
-                          <span className="text-slate-200">{display}</span>
-                        </div>
-                      );
-                    })}
+      <p className="text-sm text-slate-500">
+        Each report below opens its dedicated page with filtering, sorting, and drill-down —
+        replacing the previous flat JSON summary cards.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {REPORT_LINKS.map((r) => (
+          <Link key={r.key} href={r.url} className="block">
+            <Card className="cursor-pointer transition-colors hover:border-slate-700 hover:bg-slate-800/40 h-full">
+              <CardContent className="flex h-full items-start gap-3 p-4">
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-600/10 text-emerald-400">
+                  {r.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-slate-200">{r.label}</span>
+                    <Badge variant="outline" className="text-xs">{r.key}</Badge>
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+                  <p className="mt-1 text-xs text-slate-500">{r.description}</p>
+                </div>
+                <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-slate-500" />
+              </CardContent>
+            </Card>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }

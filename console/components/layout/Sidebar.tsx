@@ -2,7 +2,9 @@
 
 import React from "react";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { api, type PlatformOverview, type MatchingSummary } from "@/lib/api";
 import {
   LayoutDashboard, Radio, Search, Server, Link as LinkIcon,
   Compass, BookOpen, Database, ShieldCheck, CheckCircle,
@@ -63,6 +65,53 @@ const sections: NavSection[] = [
   },
 ];
 
+// Live nav badge — renders a count for nav items that have a live signal to surface.
+// Shares the React Query cache with the TopBar (same keys), so this is essentially free.
+function NavBadge({ href }: { href: string }) {
+  const overview = useQuery<PlatformOverview>({
+    queryKey: ["overview"],
+    queryFn: () => api.overview(),
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+    refetchIntervalInBackground: false,
+  });
+  const matching = useQuery<MatchingSummary>({
+    queryKey: ["matchingSummary"],
+    queryFn: () => api.matchingSummary(),
+    staleTime: 30_000,
+    refetchIntervalInBackground: false,
+  });
+
+  if (href === "/matches/live") {
+    const count = overview.data?.live_matches ?? 0;
+    if (count === 0) return null;
+    return (
+      <span className="ml-auto inline-flex items-center rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-medium text-emerald-300">
+        {count}
+      </span>
+    );
+  }
+  if (href === "/incidents") {
+    const count = overview.data?.open_incidents ?? 0;
+    if (count === 0) return null;
+    return (
+      <span className="ml-auto inline-flex items-center rounded-full bg-red-500/20 px-2 py-0.5 text-xs font-medium text-red-300 animate-pulse">
+        {count}
+      </span>
+    );
+  }
+  if (href === "/matching") {
+    const count = matching.data?.without_market ?? 0;
+    if (count === 0) return null;
+    return (
+      <span className="ml-auto inline-flex items-center rounded-full bg-yellow-500/20 px-2 py-0.5 text-xs font-medium text-yellow-300">
+        {count}
+      </span>
+    );
+  }
+  return null;
+}
+
 interface SidebarProps {
   pathname: string;
 }
@@ -95,6 +144,7 @@ export function Sidebar({ pathname }: SidebarProps) {
               >
                 {item.icon}
                 {item.label}
+                <NavBadge href={item.href} />
               </Link>
             ))}
           </div>

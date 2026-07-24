@@ -12,6 +12,8 @@ export default function LiveMatchesPage() {
     queryKey: ["liveMatches"],
     queryFn: () => api.liveMatches(),
     refetchInterval: 5000,
+    // Don't keep hammering the API when the user is on another tab.
+    refetchIntervalInBackground: false,
   });
 
   const matches = data ?? [];

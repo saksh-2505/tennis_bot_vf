@@ -1,23 +1,24 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api, type MatchingSummary } from "@/lib/api";
 import { StatCard } from "@/components/layout/StatCard";
 import { DataTable } from "@/components/data/DataTable";
+import { StatusBadge } from "@/components/data/StatusBadge";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { Select } from "@/components/ui/Select";
-import { Link, AlertTriangle } from "lucide-react";
+import { PAGE_SIZE_OPTIONS } from "@/lib/constants";
+import { Link as LinkIcon, AlertTriangle } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 
-const pageSizeOptions = [
-  { label: "25", value: "25" },
-  { label: "50", value: "50" },
-  { label: "100", value: "100" },
-];
+const pageSizeOptions = [...PAGE_SIZE_OPTIONS];
 
 export default function MatchingPage() {
+  const router = useRouter();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
 
@@ -40,8 +41,24 @@ export default function MatchingPage() {
   const unmatchedMatches = unmatched.data?.matches ?? [];
   const attemptItems = attempts.data?.items ?? [];
   const attemptTotal = attempts.data?.total ?? 0;
+  const attemptTotalPages = attempts.data?.total_pages ?? 1;
 
-  const unmatchedCols = [
+  // Row click → /matches/[id]. Unmatched matches are the most actionable queue
+  // — previously a dead-end table. Attempt rows also link to their match.
+  const onUnmatchedRowClicked = (e: any) => {
+    const id = e.data?.id;
+    if (id != null) router.push(`/matches/${id}`);
+  };
+  const onAttemptRowClicked = (e: any) => {
+    const id = e.data?.id;
+    // MatchAttempt rows from /matching/attempts have a numeric `id`; searchMatches
+    // entries use the tracked_matches.id. Navigate to match detail when known.
+    // (Backend `_match_attempts` in matches.py omits `id`; matching.py includes it.)
+    if (id != null) router.push(`/matches/${id}`);
+  };
+
+  // Memoize — AG Grid re-processes columns on every render otherwise.
+  const unmatchedCols = useMemo(() => [
     { field: "id", headerName: "ID", width: 80 },
     { field: "flashscore_match_id", headerName: "Flashscore ID", flex: 1 },
     { field: "player1_name", headerName: "Player 1", flex: 1.5 },
@@ -51,15 +68,11 @@ export default function MatchingPage() {
       field: "status",
       headerName: "Status",
       width: 120,
-      cellRenderer: (p: any) => {
-        if (p.value === "LIVE") return <Badge variant="success">LIVE</Badge>;
-        if (p.value === "FINISHED") return <Badge variant="outline">FINISHED</Badge>;
-        return <Badge variant="outline">{p.value}</Badge>;
-      },
+      cellRenderer: (p: any) => <StatusBadge status={p.value} />,
     },
-  ];
+  ], []);
 
-  const attemptCols = [
+  const attemptCols = useMemo(() => [
     { field: "id", headerName: "ID", width: 80 },
     { field: "flashscore_match_id", headerName: "Flashscore ID", flex: 1 },
     { field: "player1_name", headerName: "Player 1", flex: 1.2 },
@@ -85,7 +98,7 @@ export default function MatchingPage() {
     { field: "tournament", headerName: "Tournament", flex: 1 },
     { field: "confidence_level", headerName: "Level", width: 100 },
     { field: "created_at", headerName: "Timestamp", valueFormatter: (p: any) => formatDate(p.value), flex: 1.5 },
-  ];
+  ], []);
 
   const unmatchedCount = s?.without_market ?? 0;
 
@@ -97,7 +110,7 @@ export default function MatchingPage() {
         <StatCard
           title="Total Tracked"
           value={summary.isLoading ? "—" : s?.total_tracked ?? "—"}
-          icon={<Link className="h-4 w-4" />}
+          icon={<LinkIcon className="h-4 w-4" />}
         />
         <StatCard
           title="With Market"
@@ -120,7 +133,7 @@ export default function MatchingPage() {
         <div className="flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3">
           <AlertTriangle className="h-4 w-4 text-yellow-400" />
           <span className="text-sm text-yellow-300">
-            {unmatchedCount} match{unmatchedCount > 1 ? "es" : ""} need market assignment
+            {unmatchedCount} match{unmatchedCount > 1 ? "es" : ""} need market assignment — click a row to inspect
           </span>
         </div>
       )}
@@ -137,7 +150,12 @@ export default function MatchingPage() {
           ) : unmatchedMatches.length === 0 ? (
             <p className="text-sm text-slate-500">No unmatched matches</p>
           ) : (
-            <DataTable rowData={unmatchedMatches} columnDefs={unmatchedCols} height={500} />
+            <DataTable
+              rowData={unmatchedMatches}
+              columnDefs={unmatchedCols}
+              height={500}
+              onRowClicked={onUnmatchedRowClicked}
+            />
           )}
         </TabsContent>
 
@@ -158,22 +176,33 @@ export default function MatchingPage() {
           ) : attemptItems.length === 0 ? (
             <p className="text-sm text-slate-500">No match attempts</p>
           ) : (
-            <DataTable rowData={attemptItems} columnDefs={attemptCols} height={500} />
+            <DataTable
+              rowData={attemptItems}
+              columnDefs={attemptCols}
+              height={500}
+              onRowClicked={onAttemptRowClicked}
+            />
           )}
           <div className="mt-3 flex justify-end gap-2">
-            <button
-              className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:bg-slate-800 disabled:opacity-50"
+            <Button
+              variant="outline"
+              size="sm"
               disabled={page <= 1}
               onClick={() => setPage((p) => p - 1)}
             >
               Previous
-            </button>
-            <button
-              className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:bg-slate-800"
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= attemptTotalPages}
               onClick={() => setPage((p) => p + 1)}
             >
               Next
-            </button>
+            </Button>
+            <span className="ml-3 self-center text-xs text-slate-500">
+              page {page}/{Math.max(attemptTotalPages, 1)}
+            </span>
           </div>
         </TabsContent>
       </Tabs>

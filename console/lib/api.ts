@@ -1,9 +1,16 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 async function fetchAPI<T>(path: string, params?: Record<string, string>): Promise<T> {
-  const url = new URL(path, API_BASE);
-  if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const res = await fetch(url.toString());
+  let url: string;
+  if (API_BASE) {
+    const u = new URL(path, API_BASE);
+    if (params) Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+    url = u.toString();
+  } else {
+    const searchParams = new URLSearchParams(params || {}).toString();
+    url = path + (searchParams ? '?' + searchParams : '');
+  }
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }

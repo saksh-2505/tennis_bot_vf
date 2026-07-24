@@ -1,13 +1,14 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { api, type PlatformOverview, type MatchOverview } from "@/lib/api";
 import { StatCard } from "@/components/layout/StatCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { MatchCard } from "@/components/data/MatchCard";
-import { Activity, TrendingUp, ShieldCheck, AlertTriangle, Database, CheckCircle, Percent } from "lucide-react";
+import { Activity, TrendingUp, ShieldCheck, AlertTriangle, Database, CheckCircle, Percent, ArrowRight } from "lucide-react";
 
 const gradeColors: Record<string, string> = {
   A: "bg-emerald-500", B: "bg-blue-500", C: "bg-yellow-500",
@@ -19,18 +20,21 @@ export default function DashboardPage() {
     queryKey: ["overview"],
     queryFn: () => api.overview(),
     refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
   });
 
   const liveMatches = useQuery<MatchOverview[]>({
     queryKey: ["liveMatches"],
     queryFn: () => api.liveMatches(),
     refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 
   const quality = useQuery({
     queryKey: ["qualityDistribution"],
     queryFn: () => api.qualityDistribution(),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 
   const o = overview.data;
@@ -135,13 +139,21 @@ export default function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium text-slate-300">
               Live Match Previews
               {live.length > 0 && (
                 <Badge variant="success" className="ml-2">{live.length}</Badge>
               )}
             </CardTitle>
+            {live.length > 5 && (
+              <Link
+                href="/matches/live"
+                className="flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300"
+              >
+                View all {live.length} <ArrowRight className="h-3 w-3" />
+              </Link>
+            )}
           </CardHeader>
           <CardContent>
             {liveMatches.isLoading ? (

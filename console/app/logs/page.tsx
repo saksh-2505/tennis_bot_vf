@@ -5,17 +5,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { api, type TimelineEntry } from "@/lib/api";
 import { Badge } from "@/components/ui/Badge";
+import { SeverityBadge } from "@/components/data/SeverityBadge";
 import { Select } from "@/components/ui/Select";
 import { Input } from "@/components/ui/Input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { SEVERITY_OPTIONS } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
-import { ScrollText, ExternalLink, Search, Filter } from "lucide-react";
-
-const severityBadge = (sev: string) => {
-  if (sev === "CRITICAL" || sev === "ERROR") return <Badge variant="destructive">{sev}</Badge>;
-  if (sev === "WARNING") return <Badge variant="warning">{sev}</Badge>;
-  return <Badge variant="outline">{sev}</Badge>;
-};
+import { ScrollText, ExternalLink, Filter } from "lucide-react";
 
 export default function LogsPage() {
   const router = useRouter();
@@ -30,20 +26,12 @@ export default function LogsPage() {
     queryFn: () => api.timeline(),
   });
 
-  const entries = data?.items ?? [];
+  const entries: TimelineEntry[] = data?.items ?? [];
 
   const sources = useMemo(() => {
     const set = new Set(entries.map((e) => e.source));
     return [{ label: "All", value: "" }, ...Array.from(set).map((s) => ({ label: s, value: s }))];
   }, [entries]);
-
-  const severityOptions = [
-    { label: "All", value: "" },
-    { label: "INFO", value: "INFO" },
-    { label: "WARNING", value: "WARNING" },
-    { label: "ERROR", value: "ERROR" },
-    { label: "CRITICAL", value: "CRITICAL" },
-  ];
 
   const filtered = useMemo(() => {
     return entries.filter((e) => {
@@ -85,7 +73,7 @@ export default function LogsPage() {
             </div>
             <div>
               <label className="mb-1 block text-xs text-slate-400">Severity</label>
-              <Select options={severityOptions} value={severity} onChange={(e) => setSeverity(e.target.value)} />
+              <Select options={[...SEVERITY_OPTIONS]} value={severity} onChange={(e) => setSeverity(e.target.value)} />
             </div>
             <div>
               <label className="mb-1 block text-xs text-slate-400">Source</label>
@@ -113,13 +101,13 @@ export default function LogsPage() {
         <div className="space-y-1">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-xs text-slate-500">
-              Showing {filtered.length} of {entries.length} entries
+              Showing {Math.min(filtered.length, 200)} of {filtered.length} (capped at 200)
             </span>
           </div>
 
           {filtered.slice(0, 200).map((entry, i) => (
             <div
-              key={i}
+              key={entry.event_id ?? i}
               className={`flex items-start gap-3 rounded border p-3 text-sm ${
                 entry.level === "CRITICAL" || entry.level === "ERROR"
                   ? "border-red-500/30 bg-red-500/5"
@@ -135,14 +123,22 @@ export default function LogsPage() {
                 <Badge variant="outline" className="mt-1 text-xs">{entry.source}</Badge>
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  {severityBadge(entry.level)}
+                <div className="flex flex-wrap items-center gap-2">
+                  <SeverityBadge level={entry.level} />
                   {entry.tracked_match_id && (
                     <button
                       onClick={() => router.push(`/matches/${entry.tracked_match_id}`)}
                       className="flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300"
                     >
                       <ExternalLink className="h-3 w-3" /> Match #{entry.tracked_match_id}
+                    </button>
+                  )}
+                  {entry.incident_id && (
+                    <button
+                      onClick={() => router.push(`/incidents?incident_id=${entry.incident_id}`)}
+                      className="flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300"
+                    >
+                      <ExternalLink className="h-3 w-3" /> Incident #{entry.incident_id}
                     </button>
                   )}
                 </div>

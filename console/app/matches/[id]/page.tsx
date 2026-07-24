@@ -1,17 +1,24 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
+import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { api, type MatchDetail, type ScorePoint, type OddsPoint, type IncidentSummary } from "@/lib/api";
+import { api, type MatchDetail } from "@/lib/api";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { DataTable } from "@/components/data/DataTable";
-import { ScoreTimeline } from "@/components/charts/ScoreTimeline";
 import { formatDate } from "@/lib/utils";
 import { ArrowLeft, Loader2, CheckCircle, XCircle } from "lucide-react";
+
+// Code-split Recharts: ScoreTimeline pulls in `recharts` (~50 KB) and is only
+// used on one tab of one page. Dynamic import keeps it out of the main bundle.
+const ScoreTimeline = dynamic(
+  () => import("@/components/charts/ScoreTimeline").then((m) => m.ScoreTimeline),
+  { ssr: false, loading: () => <p className="text-sm text-slate-500">Loading chart…</p> }
+);
 
 export default function MatchDetailPage() {
   const params = useParams<{ id: string }>();
@@ -22,23 +29,11 @@ export default function MatchDetailPage() {
     queryKey: ["matchDetail", id],
     queryFn: () => api.matchDetail(id),
     enabled: !isNaN(id),
-  });
-
-  const { data: scores } = useQuery<ScorePoint[]>({
-    queryKey: ["matchScores", id],
-    queryFn: () => api.matchScores(id),
-    enabled: !isNaN(id),
-  });
-
-  const { data: odds } = useQuery<OddsPoint[]>({
-    queryKey: ["matchOdds", id],
-    queryFn: () => api.matchOdds(id),
-    enabled: !isNaN(id),
-  });
-
-  const { data: incidents } = useQuery({
-    queryKey: ["incidents"],
-    queryFn: () => api.incidents(),
+    // Poll while LIVE — previously this page froze for live matches; the live
+    // list kept polling at 5s but the match detail you'd opened went stale silently.
+    refetchInterval: (query) => (query.state.data?.status === "LIVE" ? 10_000 : false),
+    refetchIntervalInBackground: false,
+    staleTime: 10_000,
   });
 
   if (isLoading) {
@@ -61,9 +56,13 @@ export default function MatchDetailPage() {
     );
   }
 
-  const relatedIncidents = incidents?.items?.filter((inc: any) => inc.tracked_match_id === id) ?? [];
-  const scorePoints = scores ?? match.scores ?? [];
-  const oddsPoints = odds ?? match.odds ?? [];
+  // PERF: previously fetched three extra queries (`matchScores`, `matchOdds`,
+  // and unparameterised `incidents` then filtered client-side). MatchDetail
+  // already embeds `scores`, `odds`, and `incidents` (server-side filtered by
+  // tracked_match_id). Drop the redundant round-trips + the full-incidents dump.
+  const relatedIncidents = match.incidents ?? [];
+  const scorePoints = match.scores ?? [];
+  const oddsPoints = match.odds ?? [];
 
   const statusBadge = (s: string) => {
     if (s === "LIVE") return <Badge variant="success">LIVE</Badge>;
@@ -72,38 +71,78 @@ export default function MatchDetailPage() {
     return <Badge variant="outline">{s}</Badge>;
   };
 
+  // Field names match ScorePoint (api.ts). Previous bug: used live_score_game_a/b,
+  // live_score_point, serving_player — none of which exist on ScorePoint → blank cells.
   const scoreCols = [
     { field: "timestamp", headerName: "Timestamp", valueFormatter: (p: any) => formatDate(p.value), flex: 2 },
     { field: "set_score_a", headerName: "Set A", width: 90 },
     { field: "set_score_b", headerName: "Set B", width: 90 },
-    { field: "live_score_game_a", headerName: "Game A", width: 90 },
-    { field: "live_score_game_b", headerName: "Game B", width: 90 },
-    { field: "live_score_point", headerName: "Point A", width: 90 },
-    { field: "live_score_point", headerName: "Point B", width: 90 },
-    { field: "serving_player", headerName: "Server", width: 120 },
+    { field: "game_score_a", headerName: "Game A", width: 90 },
+    { field: "game_score_b", headerName: "Game B", width: 90 },
+    { field: "point_score", headerName: "Point", width: 110 },
+    { field: "server", headerName: "Server", width: 160 },
+    { field: "is_tiebreak", headerName: "TB", width: 70, cellRenderer: (p: any) => (p.value ? "Y" : "") },
+    { field: "match_finished", headerName: "Fin", width: 70, cellRenderer: (p: any) => (p.value ? "✓" : "") },
   ];
 
+  // Field names match OddsPoint (api.ts). Previous bug: used provider/odds_a/odds_b/market
+  // — none of which exist on OddsPoint → entire odds tab blank.
   const oddsCols = [
     { field: "timestamp", headerName: "Timestamp", valueFormatter: (p: any) => formatDate(p.value), flex: 2 },
-    { field: "provider", headerName: "Provider", flex: 1 },
-    { field: "odds_a", headerName: "Back A", valueFormatter: (p: any) => p.value?.toFixed(2) ?? "—", width: 100 },
-    { field: "odds_b", headerName: "Back B", valueFormatter: (p: any) => p.value?.toFixed(2) ?? "—", width: 100 },
-    { field: "market", headerName: "Market", flex: 1 },
+    { field: "back_odds_a", headerName: "Back A", valueFormatter: (p: any) => (p.value != null ? p.value.toFixed(2) : "—"), width: 100 },
+    { field: "back_odds_b", headerName: "Back B", valueFormatter: (p: any) => (p.value != null ? p.value.toFixed(2) : "—"), width: 100 },
+    { field: "lay_odds_a", headerName: "Lay A", valueFormatter: (p: any) => (p.value != null ? p.value.toFixed(2) : "—"), width: 100 },
+    { field: "lay_odds_b", headerName: "Lay B", valueFormatter: (p: any) => (p.value != null ? p.value.toFixed(2) : "—"), width: 100 },
+    { field: "volume_a", headerName: "Vol A", valueFormatter: (p: any) => (p.value != null ? p.value.toLocaleString() : "—"), width: 110 },
+    { field: "volume_b", headerName: "Vol B", valueFormatter: (p: any) => (p.value != null ? p.value.toLocaleString() : "—"), width: 110 },
   ];
 
+  // Field names match IncidentSummary (api.ts). Previous bug: used incident_type,
+  // resolved (bool), description, timestamp — none of which exist on IncidentSummary.
   const incidentCols = [
     { field: "severity", headerName: "Severity", width: 100, cellRenderer: (p: any) => {
       const s = p.value;
       if (s === "CRITICAL" || s === "ERROR") return <Badge variant="destructive">{s}</Badge>;
       if (s === "WARNING") return <Badge variant="warning">{s}</Badge>;
-      return <Badge variant="outline">{s}</Badge>;
+      return <Badge variant="outline">{s ?? "—"}</Badge>;
     }},
-    { field: "resolved", headerName: "Status", width: 100, cellRenderer: (p: any) =>
-      p.value ? <Badge variant="success">Resolved</Badge> : <Badge variant="destructive">Open</Badge>
-    },
-    { field: "incident_type", headerName: "Category", flex: 1 },
-    { field: "description", headerName: "Title", flex: 2 },
-    { field: "timestamp", headerName: "First Detected", valueFormatter: (p: any) => formatDate(p.value), flex: 1.5 },
+    { field: "status", headerName: "Status", width: 120, cellRenderer: (p: any) => {
+      const s = p.value;
+      if (s === "OPEN") return <Badge variant="destructive">OPEN</Badge>;
+      if (s === "RESOLVED" || s === "CLOSED") return <Badge variant="success">{s}</Badge>;
+      if (s === "ACKNOWLEDGED" || s === "RECOVERING") return <Badge variant="warning">{s}</Badge>;
+      return <Badge variant="outline">{s ?? "—"}</Badge>;
+    }},
+    { field: "category", headerName: "Category", width: 160 },
+    { field: "title", headerName: "Title", flex: 2 },
+    { field: "module", headerName: "Module", width: 160 },
+    { field: "first_detected", headerName: "First Detected", valueFormatter: (p: any) => formatDate(p.value), flex: 1.5 },
+  ];
+
+  // Match attempts (matcher audit log) — populated from MatchDetail.match_attempts
+  // (backend already returns them; was previously a stub). Matches the matcher's
+  // signal_scores/signal_reasons semantics; signal_* JSON blobs are kept out of the grid.
+  const attemptCols = [
+    { field: "betting_market_id", headerName: "Market ID", width: 150 },
+    { field: "confidence_score", headerName: "Confidence", valueFormatter: (p: any) => (p.value != null ? `${(p.value * 100).toFixed(1)}%` : "—"), width: 110 },
+    { field: "confidence_level", headerName: "Level", width: 110, cellRenderer: (p: any) => {
+      const s = p.value;
+      if (s === "REJECTED") return <Badge variant="destructive">REJECTED</Badge>;
+      if (s === "HIGH") return <Badge variant="success">HIGH</Badge>;
+      if (s === "MEDIUM") return <Badge variant="warning">MEDIUM</Badge>;
+      if (s === "LOW") return <Badge variant="outline">LOW</Badge>;
+      return <Badge variant="outline">{s ?? "—"}</Badge>;
+    }},
+    { field: "selected", headerName: "Selected", width: 90, cellRenderer: (p: any) => (p.value ? <CheckCircle className="h-4 w-4 text-emerald-400" /> : <XCircle className="h-4 w-4 text-slate-600" />) },
+    { field: "rejected", headerName: "Rejected", width: 90, cellRenderer: (p: any) => (p.value ? <XCircle className="h-4 w-4 text-red-400" /> : <CheckCircle className="h-4 w-4 text-slate-600" />) },
+    { field: "rejection_reason", headerName: "Rejection Reason", flex: 1.5 },
+    { field: "created_at", headerName: "Created At", valueFormatter: (p: any) => formatDate(p.value), flex: 1.5 },
+  ];
+
+  // Repairs — populated from MatchDetail.repairs.
+  const repairCols = [
+    { field: "action", headerName: "Repair Action", flex: 3 },
+    { field: "repaired_at", headerName: "Repaired At", valueFormatter: (p: any) => formatDate(p.value), flex: 2 },
   ];
 
   return (
@@ -179,7 +218,8 @@ export default function MatchDetailPage() {
                     <span className="block text-xs text-slate-500">Live Score</span>
                     <span className="font-mono text-lg font-bold text-slate-100">
                       {match.live_score_set_a}-{match.live_score_set_b} ({match.live_score_game_a}-{match.live_score_game_b})
-                      {match.live_score_point && ` ${match.live_score_point}-${match.live_score_point}`}
+                      {/* live_score_point is already "X-Y" — show once, not doubled */}
+                      {match.live_score_point && ` ${match.live_score_point}`}
                     </span>
                   </div>
                 )}
@@ -197,7 +237,7 @@ export default function MatchDetailPage() {
                 )}
                 {match.live_score_server && (
                   <div>
-                    <span className="block text-xs text-slate-500">Collector</span>
+                    <span className="block text-xs text-slate-500">Server</span>
                     <span className="text-slate-200">{match.live_score_server}</span>
                   </div>
                 )}
@@ -327,20 +367,42 @@ export default function MatchDetailPage() {
 
         <TabsContent value="matches">
           <Card>
-            <CardHeader><CardTitle className="text-sm">Match Attempts</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="text-sm">
+                Match Attempts ({match.match_attempts?.length ?? 0})
+              </CardTitle>
+            </CardHeader>
             <CardContent>
-              <p className="text-sm text-slate-500">
-                No match attempt data available from API. Event ID: {match.flashscore_match_id || "N/A"}
-              </p>
+              {!match.match_attempts || match.match_attempts.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No matching attempts for event {match.flashscore_match_id || "N/A"}.
+                  This happens when the matcher engine never evaluated candidates for this match
+                  — check <a className="text-emerald-400 hover:underline" href="/matching">/matching</a>{" "}
+                  for unmatched matches.
+                </p>
+              ) : (
+                <DataTable rowData={match.match_attempts} columnDefs={attemptCols} height={400} />
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="repairs">
           <Card>
-            <CardHeader><CardTitle className="text-sm">Repair History</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="text-sm">
+                Repair History ({match.repairs?.length ?? 0})
+              </CardTitle>
+            </CardHeader>
             <CardContent>
-              <p className="text-sm text-slate-500">No repair data available for this match</p>
+              {!match.repairs || match.repairs.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No repair history for this match. Match was never re-processed by the repair engine
+                  (quality grade A/B matches typically receive no repair actions).
+                </p>
+              ) : (
+                <DataTable rowData={match.repairs} columnDefs={repairCols} height={300} />
+              )}
             </CardContent>
           </Card>
         </TabsContent>

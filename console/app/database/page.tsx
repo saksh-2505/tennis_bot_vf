@@ -1,15 +1,25 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api, type DbTablesResponse, type DbTableDetail } from "@/lib/api";
 import { DataTable } from "@/components/data/DataTable";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Input } from "@/components/ui/Input";
-import { Database, Table, Search } from "lucide-react";
+import { Database, Table, Search, ExternalLink } from "lucide-react";
+
+// Tables whose primary key (and `id`/`incident_id` column) maps directly to a
+// rich page in the console — clicking a row navigates instead of being a dead-end.
+const TABLE_DEEPLINK: Record<string, { idColumn: string; path: (id: string | number) => string }> = {
+  tracked_matches: { idColumn: "id", path: (id) => `/matches/${id}` },
+  completed_matches: { idColumn: "tracked_match_id", path: (id) => `/matches/${id}` },
+  incidents: { idColumn: "incident_id", path: (id) => `/incidents?incident_id=${id}` },
+};
 
 export default function DatabasePage() {
+  const router = useRouter();
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [rowFilter, setRowFilter] = useState("");
 
@@ -26,29 +36,47 @@ export default function DatabasePage() {
     enabled: !!selectedTable,
   });
 
-  const tableCols = [
-    { field: "table", headerName: "Table Name", flex: 2 },
-    { field: "schema", headerName: "Schema", flex: 1 },
-    { field: "row_count", headerName: "Rows", width: 120, type: "numericColumn" },
-    { field: "size", headerName: "Size", width: 100 },
-    { field: "last_vacuum", headerName: "Last Vacuum", flex: 1.5 },
-  ];
-
   const sampleRows = tableDetail.data?.rows ?? [];
-  const filteredRows = rowFilter
-    ? sampleRows.filter((row) =>
-        Object.values(row).some((val) =>
-          String(val).toLowerCase().includes(rowFilter.toLowerCase())
-        )
-      )
-    : sampleRows;
+  const filteredRows = useMemo(
+    () =>
+      rowFilter
+        ? sampleRows.filter((row) =>
+            Object.values(row).some((val) =>
+              String(val ?? "").toLowerCase().includes(rowFilter.toLowerCase())
+            )
+          )
+        : sampleRows,
+    [sampleRows, rowFilter]
+  );
 
-  const detailCols = tableDetail.data?.columns.map((colName: string) => ({
-    field: colName,
-    headerName: colName,
-    flex: 1,
-    minWidth: 120,
-  })) ?? [];
+  const deeplink = selectedTable ? TABLE_DEEPLINK[selectedTable] : undefined;
+
+  const onRowClicked = (e: any) => {
+    if (!deeplink) return;
+    const id = e.data?.[deeplink.idColumn];
+    if (id != null) router.push(deeplink.path(id));
+  };
+
+  const detailCols = useMemo(
+    () =>
+      tableDetail.data?.columns.map((colName: string) => ({
+        field: colName,
+        headerName: colName,
+        flex: 1,
+        minWidth: 120,
+        // Render `id` / `incident_id` columns of deeplinkable tables with a hover affordance.
+        cellRenderer:
+          deeplink && colName === deeplink.idColumn
+            ? (p: any) => (
+              <span className="flex items-center gap-1 text-emerald-400">
+                {String(p.value ?? "")}
+                <ExternalLink className="h-3 w-3 opacity-60" />
+              </span>
+            )
+            : undefined,
+      })) ?? [],
+    [tableDetail.data, deeplink]
+  );
 
   return (
     <div className="space-y-6">
@@ -72,7 +100,7 @@ export default function DatabasePage() {
                 {tableList.map((t) => (
                   <button
                     key={t.table}
-                    onClick={() => setSelectedTable(t.table)}
+                    onClick={() => { setSelectedTable(t.table); setRowFilter(""); }}
                     className={`flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm transition-colors ${
                       selectedTable === t.table
                         ? "bg-emerald-600/20 text-emerald-400"
@@ -83,7 +111,9 @@ export default function DatabasePage() {
                       <Table className="h-3 w-3" />
                       <span>{t.table}</span>
                     </div>
-                    <Badge variant="outline" className="text-xs">{t.row_count}</Badge>
+                    <Badge variant="outline" className="text-xs">
+                      {t.row_count.toLocaleString()}
+                    </Badge>
                   </button>
                 ))}
               </CardContent>
@@ -105,14 +135,19 @@ export default function DatabasePage() {
             ) : (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <h2 className="font-semibold text-slate-200">{selectedTable}</h2>
                     <Badge variant="outline">
-                      {tableDetail.data?.rows.length ?? 0} rows
+                      {(tableDetail.data?.rows.length ?? 0).toLocaleString()} rows shown
                     </Badge>
                     <span className="text-xs text-slate-500">
                       {tableDetail.data?.columns.length ?? 0} columns
                     </span>
+                    {deeplink && (
+                      <span className="text-xs text-emerald-400/70">
+                        click a row to open rich view
+                      </span>
+                    )}
                   </div>
                   <div className="relative w-64">
                     <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-500" />
@@ -132,6 +167,7 @@ export default function DatabasePage() {
                     rowData={filteredRows.slice(0, 50)}
                     columnDefs={detailCols}
                     height={500}
+                    onRowClicked={onRowClicked}
                   />
                 )}
               </div>

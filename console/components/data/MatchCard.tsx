@@ -2,20 +2,13 @@
 
 import React from "react";
 import Link from "next/link";
-import { Badge } from "@/components/ui/Badge";
 import { Card, CardContent } from "@/components/ui/Card";
+import { StatusBadge } from "@/components/data/StatusBadge";
+import { Badge } from "@/components/ui/Badge";
 import { formatDate } from "@/lib/utils";
 import type { MatchOverview } from "@/lib/api";
 
-export function MatchCard({ match }: { match: MatchOverview }) {
-  const statusBadge = (status: string) => {
-    if (status === "LIVE") return <Badge variant="success">LIVE</Badge>;
-    if (status === "FINISHED") return <Badge variant="outline">FINISHED</Badge>;
-    if (status === "SCHEDULED" || status === "DISCOVERED")
-      return <Badge className="bg-blue-600/20 text-blue-400 border-blue-600/30">SCHEDULED</Badge>;
-    return <Badge variant="outline">{status}</Badge>;
-  };
-
+function MatchCardImpl({ match }: { match: MatchOverview }) {
   const hasLiveScore =
     match.live_score_set_a != null || match.live_score_set_b != null ||
     match.live_score_game_a != null || match.live_score_game_b != null;
@@ -49,7 +42,7 @@ export function MatchCard({ match }: { match: MatchOverview }) {
               )}
             </div>
             <div className="flex flex-col items-end gap-1">
-              {statusBadge(match.status)}
+              <StatusBadge status={match.status} />
               {match.quality_grade && (
                 <Badge variant="outline" className="text-xs">
                   Q: {match.quality_grade}
@@ -59,10 +52,10 @@ export function MatchCard({ match }: { match: MatchOverview }) {
           </div>
           <div className="mt-3 flex items-center gap-4 text-xs text-slate-500">
             {match.live_odds_a != null && (
-              <span>O: {match.live_odds_a.toFixed(2)}</span>
+              <span>A: {match.live_odds_a.toFixed(2)}</span>
             )}
             {match.live_odds_b != null && (
-              <span>O: {match.live_odds_b.toFixed(2)}</span>
+              <span>B: {match.live_odds_b.toFixed(2)}</span>
             )}
             {match.live_score_server && (
               <span>Serve: {match.live_score_server}</span>
@@ -76,3 +69,30 @@ export function MatchCard({ match }: { match: MatchOverview }) {
     </Link>
   );
 }
+
+// Memo + stable comparator: live overview re-fetches every 5s with brand-new
+// array refs. Without memo every MatchCard re-renders regardless of whether
+// its underlying match row changed. We compare by id + the volatile fields
+// that actually update (scores, odds, server, poll timestamps, quality_grade).
+type MatchCardProps = { match: MatchOverview };
+function matchChanged(prev: Readonly<MatchCardProps>, next: Readonly<MatchCardProps>): boolean {
+  const p = prev.match;
+  const n = next.match;
+  return (
+    p.id === n.id &&
+    p.status === n.status &&
+    p.live_score_set_a === n.live_score_set_a &&
+    p.live_score_set_b === n.live_score_set_b &&
+    p.live_score_game_a === n.live_score_game_a &&
+    p.live_score_game_b === n.live_score_game_b &&
+    p.live_score_point === n.live_score_point &&
+    p.live_score_server === n.live_score_server &&
+    p.live_odds_a === n.live_odds_a &&
+    p.live_odds_b === n.live_odds_b &&
+    p.last_score_poll === n.last_score_poll &&
+    p.last_odds_poll === n.last_odds_poll &&
+    p.quality_grade === n.quality_grade
+  );
+}
+
+export const MatchCard = React.memo(MatchCardImpl, matchChanged);

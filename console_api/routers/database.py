@@ -67,6 +67,23 @@ def db_table_data(
 
 def _serialize(v):
     from datetime import datetime
+    from decimal import Decimal
+    try:
+        from uuid import UUID
+    except ImportError:  # pragma: no cover
+        UUID = None
+
     if isinstance(v, datetime):
         return v.isoformat()
+    if isinstance(v, Decimal):
+        # `numeric` columns (e.g. live_odds volumes) arrive as Decimal — encode as float.
+        return float(v)
+    if UUID is not None and isinstance(v, UUID):
+        return str(v)
+    if isinstance(v, (bytes, bytearray)):
+        return v.decode("utf-8", errors="replace")
+    if isinstance(v, dict):
+        return {k: _serialize(val) for k, val in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_serialize(val) for val in v]
     return v

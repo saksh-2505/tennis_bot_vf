@@ -1,31 +1,20 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api, type MatchOverview } from "@/lib/api";
 import { DataTable } from "@/components/data/DataTable";
+import { StatusBadge } from "@/components/data/StatusBadge";
 import { Badge } from "@/components/ui/Badge";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
+import { MATCH_STATUS_OPTIONS, QUALITY_GRADE_OPTIONS } from "@/lib/constants";
 import { Search, RefreshCw } from "lucide-react";
 
-const statusOptions = [
-  { label: "All", value: "" },
-  { label: "LIVE", value: "LIVE" },
-  { label: "FINISHED", value: "FINISHED" },
-  { label: "SCHEDULED", value: "SCHEDULED" },
-];
-
-const qualityOptions = [
-  { label: "All", value: "" },
-  { label: "A", value: "A" },
-  { label: "B", value: "B" },
-  { label: "C", value: "C" },
-  { label: "D", value: "D" },
-  { label: "F", value: "F" },
-];
+const statusOptions = [...MATCH_STATUS_OPTIONS];
+const qualityOptions = [...QUALITY_GRADE_OPTIONS];
 
 export default function MatchExplorerPage() {
   const router = useRouter();
@@ -48,7 +37,9 @@ export default function MatchExplorerPage() {
   const matches = data?.items ?? [];
   const total = data?.total ?? 0;
 
-  const columnDefs = [
+  // Memoize — AG Grid re-diffs columns on every parent render otherwise.
+  // Contains cellRenderer closures that would otherwise be re-created on every poll.
+  const columnDefs = useMemo(() => [
     {
       field: "id",
       headerName: "ID",
@@ -65,13 +56,7 @@ export default function MatchExplorerPage() {
       field: "status",
       headerName: "Status",
       width: 120,
-      cellRenderer: (params: any) => {
-        const s = params.value;
-        if (s === "LIVE") return <Badge variant="success">LIVE</Badge>;
-        if (s === "FINISHED") return <Badge variant="outline">FINISHED</Badge>;
-        if (s === "SCHEDULED") return <Badge className="bg-blue-600/20 text-blue-400 border-blue-600/30">SCHEDULED</Badge>;
-        return <Badge variant="outline">{s}</Badge>;
-      },
+      cellRenderer: (params: any) => <StatusBadge status={params.value} />,
     },
     {
       field: "quality_grade",
@@ -88,7 +73,7 @@ export default function MatchExplorerPage() {
       width: 110,
       valueFormatter: (params: any) => (params.value != null ? params.value.toFixed(2) : "—"),
     },
-  ];
+  ], []);  // empty deps — defs are static (no closures over state)
 
   const onRowClicked = useCallback(
     (event: any) => {
@@ -145,12 +130,13 @@ export default function MatchExplorerPage() {
           rowData={matches}
           columnDefs={columnDefs}
           height={600}
+          onRowClicked={onRowClicked}
         />
       )}
 
       <div className="flex items-center justify-between">
         <span className="text-xs text-slate-500">
-          {matches.length} results
+          {data?.total ?? matches.length} results · page {page}/{Math.max(data?.total_pages ?? 1, 1)}
         </span>
         <div className="flex gap-2">
           <Button
@@ -164,6 +150,7 @@ export default function MatchExplorerPage() {
           <Button
             variant="outline"
             size="sm"
+            disabled={page >= (data?.total_pages ?? 1)}
             onClick={() => setPage((p) => p + 1)}
           >
             Next

@@ -1,38 +1,34 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { api, type IncidentSummary, type IncidentDetail } from "@/lib/api";
+import { api, type IncidentDetail } from "@/lib/api";
 import { DataTable } from "@/components/data/DataTable";
+import { SeverityBadge } from "@/components/data/SeverityBadge";
 import { Badge } from "@/components/ui/Badge";
 import { Select } from "@/components/ui/Select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { SEVERITY_OPTIONS, INCIDENT_STATUS_OPTIONS } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
-import { AlertTriangle, X, Eye } from "lucide-react";
-
-const severityOptions = [
-  { label: "All", value: "" },
-  { label: "CRITICAL", value: "CRITICAL" },
-  { label: "ERROR", value: "ERROR" },
-  { label: "WARNING", value: "WARNING" },
-  { label: "INFO", value: "INFO" },
-];
-
-const statusOptions = [
-  { label: "All", value: "" },
-  { label: "OPEN", value: "OPEN" },
-  { label: "ACKNOWLEDGED", value: "ACKNOWLEDGED" },
-  { label: "RESOLVED", value: "RESOLVED" },
-  { label: "CLOSED", value: "CLOSED" },
-];
+import { AlertTriangle, X, Eye, ExternalLink } from "lucide-react";
 
 export default function IncidentsPage() {
+  const router = useRouter();
   const [severity, setSeverity] = useState("");
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const pageSize = 50;
+
+  // Auto-open modal if '?incident_id=' is in the URL — enables deep links from
+  // timeline, logs, match-detail pages, and shares.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("incident_id");
+    if (id) setSelectedId(Number(id));
+  }, []);
 
   const params: Record<string, string> = { page: String(page), page_size: String(pageSize) };
   if (severity) params.severity = severity;
@@ -49,22 +45,27 @@ export default function IncidentsPage() {
     enabled: selectedId != null,
   });
 
+  const closeModal = () => setSelectedId(null);
+  // Escape + backdrop click to dismiss modal (previously only the X button worked).
+  useEffect(() => {
+    if (selectedId == null) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeModal(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedId]);
+
   const incidents = data?.items ?? [];
   const total = data?.total ?? 0;
 
-  const cols = [
+  // Memoize — AG Grid re-diffs columns each render otherwise; the cellRenderer
+  // closures recreated here would also defeat React.memo in ScoreTimeline/etc.
+  const cols = useMemo(() => [
     { field: "id", headerName: "ID", width: 80 },
     {
       field: "severity",
       headerName: "Severity",
       width: 110,
-      cellRenderer: (p: any) => {
-        const s = p.value;
-        if (s === "CRITICAL") return <Badge variant="destructive">CRITICAL</Badge>;
-        if (s === "ERROR") return <Badge variant="destructive">ERROR</Badge>;
-        if (s === "WARNING") return <Badge variant="warning">WARNING</Badge>;
-        return <Badge variant="outline">{s}</Badge>;
-      },
+      cellRenderer: (p: any) => <SeverityBadge level={p.value} />,
     },
     {
       field: "status",
@@ -73,6 +74,7 @@ export default function IncidentsPage() {
       cellRenderer: (p: any) => {
         if (p.value === "RESOLVED" || p.value === "CLOSED")
           return <Badge variant="success">{p.value}</Badge>;
+        if (p.value === "RECOVERING") return <Badge variant="info">{p.value}</Badge>;
         return <Badge variant="warning">{p.value}</Badge>;
       },
     },
@@ -92,7 +94,10 @@ export default function IncidentsPage() {
         </button>
       ),
     },
-  ];
+  ], []);
+
+  // Bound the "Next" pagination button by total_pages so users can't page into emptiness.
+  const totalPages = data?.total_pages ?? 1;
 
   return (
     <div className="space-y-6">
@@ -105,7 +110,7 @@ export default function IncidentsPage() {
         <div className="w-40">
           <label className="mb-1 block text-xs text-slate-400">Severity</label>
           <Select
-            options={severityOptions}
+            options={[...SEVERITY_OPTIONS]}
             value={severity}
             onChange={(e) => { setSeverity(e.target.value); setPage(1); }}
           />
@@ -113,7 +118,7 @@ export default function IncidentsPage() {
         <div className="w-40">
           <label className="mb-1 block text-xs text-slate-400">Status</label>
           <Select
-            options={statusOptions}
+            options={[...INCIDENT_STATUS_OPTIONS]}
             value={status}
             onChange={(e) => { setStatus(e.target.value); setPage(1); }}
           />
@@ -131,23 +136,26 @@ export default function IncidentsPage() {
       )}
 
       <div className="flex items-center justify-between">
-        <span className="text-xs text-slate-500">{total} incidents total</span>
+        <span className="text-xs text-slate-500">{total} incidents total · page {page}/{Math.max(totalPages, 1)}</span>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
             Previous
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)}>
+          <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
             Next
           </Button>
         </div>
       </div>
 
       {selectedIncident && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <Card className="w-full max-w-lg">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={closeModal}
+        >
+          <Card className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-sm">Incident #{selectedIncident.id}</CardTitle>
-              <button onClick={() => setSelectedId(null)}>
+              <button onClick={closeModal}>
                 <X className="h-4 w-4 text-slate-400 hover:text-slate-200" />
               </button>
             </CardHeader>
@@ -178,9 +186,46 @@ export default function IncidentsPage() {
                   <span className="text-slate-300">{formatDate(selectedIncident.first_detected)}</span>
                 </div>
                 <div className="flex justify-between">
+                  <span className="text-slate-500">Last Detected</span>
+                  <span className="text-slate-300">{formatDate(selectedIncident.last_detected_at)}</span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-slate-500">Occurrences</span>
                   <span className="text-slate-300">{selectedIncident.occurrence_count}</span>
                 </div>
+                {selectedIncident.recovery_attempts > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Recovery Attempts</span>
+                    <span className="text-slate-300">{selectedIncident.recovery_attempts}</span>
+                  </div>
+                )}
+                {/* Cross-link → /matches/[id]. Previously `tracked_match_id` was
+                    fetched but never displayed or linked — the biggest dead-end in the console. */}
+                {selectedIncident.tracked_match_id != null && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Match</span>
+                    <button
+                      onClick={() => router.push(`/matches/${selectedIncident.tracked_match_id}`)}
+                      className="flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300"
+                    >
+                      Match #{selectedIncident.tracked_match_id}
+                      <ExternalLink className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
+                {/* Cross-link → /collectors. collector_name pinpoints which collector failed. */}
+                {selectedIncident.collector_name && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Collector</span>
+                    <button
+                      onClick={() => router.push("/collectors")}
+                      className="flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300"
+                    >
+                      {selectedIncident.collector_name}
+                      <ExternalLink className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
                 <div>
                   <span className="block text-slate-500 mb-1">Title</span>
                   <p className="rounded bg-slate-800 p-2 text-slate-300">{selectedIncident.title}</p>
@@ -188,7 +233,7 @@ export default function IncidentsPage() {
                 {selectedIncident.summary && (
                   <div>
                     <span className="block text-slate-500 mb-1">Summary</span>
-                    <p className="rounded bg-slate-800 p-2 text-slate-300">{selectedIncident.summary}</p>
+                    <p className="rounded bg-slate-800 p-2 text-slate-300 whitespace-pre-wrap">{selectedIncident.summary}</p>
                   </div>
                 )}
                 {selectedIncident.resolved_at && (

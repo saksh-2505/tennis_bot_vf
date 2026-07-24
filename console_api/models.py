@@ -75,6 +75,20 @@ class MatchDetail(BaseModel):
     collection_started_at: datetime | None
     created_at: datetime | None
     updated_at: datetime | None
+    # Live snapshot fields — parity with MatchOverview (TS `MatchDetail extends MatchOverview`).
+    # Populated from the latest live_scores/live_odds + completed_matches.quality_*.
+    live_score_set_a: int | None = None
+    live_score_set_b: int | None = None
+    live_score_game_a: int | None = None
+    live_score_game_b: int | None = None
+    live_score_point: str | None = None
+    live_score_server: str | None = None
+    live_odds_a: float | None = None
+    live_odds_b: float | None = None
+    last_score_poll: datetime | None = None
+    last_odds_poll: datetime | None = None
+    quality_grade: str | None = None
+    quality_score: float | None = None
 
     completed: dict | None = None
     scores: list[dict] = []

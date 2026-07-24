@@ -2,11 +2,14 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
-  variant?: "default" | "success" | "warning" | "destructive" | "outline";
+  variant?: "default" | "info" | "success" | "warning" | "destructive" | "outline";
 }
 
 const variants: Record<string, string> = {
   default: "bg-emerald-600/20 text-emerald-400 border-emerald-600/30",
+  // `success` previously aliased to `default` — kept for backwards compat,
+  // no longer redundant: behaves identically.
+  info: "bg-blue-600/20 text-blue-400 border-blue-600/30",
   success: "bg-emerald-600/20 text-emerald-400 border-emerald-600/30",
   warning: "bg-yellow-600/20 text-yellow-400 border-yellow-600/30",
   destructive: "bg-red-600/20 text-red-400 border-red-600/30",

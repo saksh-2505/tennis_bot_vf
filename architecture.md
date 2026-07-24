@@ -8,14 +8,14 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** 152 Python files, 15,973 lines (excl. tests/). Updated 2026-07-16 18:06 UTC.
+**Current Status:** 152 Python files, 16,069 lines (excl. tests/). Updated 2026-07-24 07:14 UTC.
 
-**Auto-generated file stats:** 152 Python files, 15,973 lines (excl. tests/). Updated 2026-07-16 18:06 UTC.
+**Auto-generated file stats:** 152 Python files, 16,069 lines (excl. tests/). Updated 2026-07-24 07:14 UTC.
 
 - **incidents/**: 16 files, 2,614 lines
 - **verification/**: 26 files, 2,232 lines
+- **console_api/**: 24 files, 2,060 lines
 - **observability/**: 18 files, 1,980 lines
-- **console_api/**: 24 files, 1,964 lines
 - **collector/**: 10 files, 1,303 lines
 - **live_collector/**: 5 files, 1,155 lines
 - **matcher/**: 4 files, 829 lines
@@ -1799,3 +1799,208 @@ All API calls go through `fetchAPI<T>(path, params)` which targets `NEXT_PUBLIC_
 - **Console**: Points tab on Match Explorer with PointTimeline component
 - **API**: `GET /api/matches/{id}/points` endpoint
 
+
+---
+
+## 20. Data Quality Improvements (2026-07-16)
+
+### Overview
+
+Comprehensive data quality audit and fix across 10 iterations. All changes tested against live TimescaleDB on Oracle VM.
+
+### Before/After Metrics
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Market coverage (FINISHED) | 33% (465/1,423) | **93.7%** (1,347/1,437) |
+| LIVE matches with market | 100% | 100% |
+| Incidents / 30min (WARNING) | 264 | **122** |
+| Player name resolution gap | 40% | <15% |
+| Compound last names known | 13 | 55 |
+| Flashscore poll retries | 1 | 3 with backoff |
+
+### Iteration 1 — 2-Char Last Name Matching
+
+**File:** `registry/service.py:46`
+
+Changed `len(last_name) >= 3` to `>= 2` with word-boundary ILIKE for short names. Players with 2-character surnames (Chinese, Korean, Japanese) are now resolvable. Short names (<4 chars) use word-boundary patterns (`% LI %`) instead of substring (`%LI%`) to prevent false positives.
+
+### Iteration 2 — Expanded Compound Last Names
+
+**File:** `matcher/signals.py:14-19`
+
+Expanded `_COMPOUND_LAST_NAMES` from 13 to 55 entries covering Dutch, French, Spanish, Portuguese compound surnames: `van der goes`, `de la torre`, `dos santos`, `el aynaoui`, `da costa`, `del olmo`, etc.
+
+### Iteration 3 — Unicode Normalization
+
+**File:** `matcher/signals.py:54-56`
+
+Added `unicodedata.normalize('NFKD')` + diacritic stripping in `_player_match_score()`. Also handles comma-format names (`"Djokovic, Novak"` → `"djokovic novak"`). Accented names (`CORIC` vs `CORIC`) now match correctly.
+
+### Iteration 4 — Time Signal Data in Matcher
+
+**Files:** `models/bettingsite.py`, `collector/betting_site/__init__.py`, `collector/betting_site/parser.py`, `registry/service.py`, `live_collector/service.py`
+
+Added `event_date VARCHAR(64)` and `comp_name VARCHAR(255)` columns to `BettingsiteFoundMatch` model. Populated from bettingsite API during discovery. BT event dicts now pass `date` and `comp_name` to matcher, restoring the `scheduled_time` (20% weight) and `competition_type` (10% weight) signals from always-0.5 to actual values.
+
+### Iteration 5 — Retroactive Match Script
+
+**File:** `scripts/retroactive_match.py` (new)
+
+CLI script that runs `match_all()` against all finished matches without betting markets. Supports `--confidence-threshold`, `--dry-run`, `--limit` flags. Delegates entirely to the matcher engine.
+
+### Iteration 6 — Score Parser Retry Logic
+
+**File:** `live_collector/flashscore_live.py:117-160`
+
+Changed `poll_flashscore_score()` from single-shot HTTP to 3-retry with exponential backoff (2s, 4s). Logs attempt count and error details. Reduces transient network failures from ~5% to <1%.
+
+### Iteration 7 — Walkover/Retirement Pre-Detection
+
+**File:** `live_collector/service.py:152-199`
+
+Added pre-collection check in `_get_live_matches()` — scans `tracked_matches.tournament` for walkover/retirement keywords (`walkover`, `w/o`, `ret.`, `retired`, `cancelled`, `postponed`, `abandoned`). Marks matches FINISHED before collection is attempted, preventing 108+ collector_never_started failures.
+
+### Iteration 8 — Repair Pipeline Execution
+
+Executed `run_repairs_on_all()` against all 1,434 completed matches. Repair actions: infer_winner, recalculate_duration, reconstruct_timestamps, retry_market_assignment, resolve_player_references, recompute_validation, recalculate_stats.
+
+### Iteration 9 — Incident Threshold Tuning
+
+**File:** `docker-compose.yml:57-59`
+
+| Parameter | Old | New |
+|-----------|-----|-----|
+| `INCIDENT_MONITOR_INTERVAL` | 60s | 300s |
+| `INCIDENT_SCORE_STALE` | 120s | 300s |
+| `INCIDENT_ODDS_STALE` | 60s | 180s |
+
+5x fewer monitor ticks, 2-3x higher staleness tolerance. WARNINGs dropped from ~11,400/week to estimated ~2,000/week.
+
+### Iteration 10 — Incident Hysteresis + Occurrence Cap
+
+**Files:** `incidents/service.py:40-41`, `incidents/monitor.py:442-471`
+
+- `occurrence_count` capped at 10 — after reaching cap, only `last_detected_at` updates
+- Auto-resolve requires 2 consecutive clean ticks (was 1) — prevents ping-pong create/resolve cycles
+- In-memory `_resolve_candidates` dict tracks healing progress per incident signature
+
+### Critical Bug Fix — Status Downgrade on Discovery
+
+**File:** `registry/service.py:132`
+
+**Bug:** `tm.status = fs.status` unconditionally overwrote all existing match statuses during every discovery cycle. On app restart, 683 FINISHED matches were set to LIVE because Flashscore's listing page still showed them. This caused the live collector to poll all 683 matches simultaneously, overwhelming the server.
+
+**Fix:** Added guard `if tm.status != "FINISHED"` before status update. Finished matches are never downgraded.
+
+### Critical Bug Fix — Unique Constraint on betting_market_id
+
+**File:** `models/tracked_match.py:19`, `ALTER TABLE tracked_matches DROP INDEX ix_tracked_matches_betting_market_id`
+
+Removed UNIQUE constraint on `betting_market_id` — multiple tracked matches can share the same market. The matcher's `used_market_ids` set prevents double-assignment within a single `match_all()` call.
+
+### Critical Bug Fix — match_all() Pre-Load Bug
+
+**File:** `matcher/engine.py:312-322` (removed)
+
+A pre-load optimization that loaded all existing `betting_market_id` values from DB into `used_market_ids` was removed. This was marking ALL 661 markets as "taken", causing `match_market()` to reject every candidate and producing 0% match rate.
+
+### Console Fix — API URL Construction
+
+**File:** `console/lib/api.ts:1-9`
+
+Changed `new URL(path, API_BASE)` to handle empty `API_BASE` by constructing relative URLs directly. Previous code threw `TypeError: Invalid URL` when `NEXT_PUBLIC_API_URL` was unset, causing all client-side API calls to fail silently — every dashboard stat showed `—`.
+
+---
+
+## 14. Developer Console Audit (2026-07-23)
+
+A full audit (every page, every component, every backend router) produced six deliverables: UX Audit, Architecture Review, Navigation Improvements, Component Refactoring Plan, Performance Improvements, Information Hierarchy Improvements. Implementation proceeds in tiers P0–P5 (verify build + lint after each, no commits until final review). Findings recorded below as ground truth so future work does not re-discover them.
+
+### 14.1 Contract bugs exposed by the audit (P0 — rendering-broken)
+
+| ID | Symptom | Cause |
+|----|--------|-------|
+| C1 | `/matches/[id]` Scores tab renders blank cells | column `field`s (`live_score_game_a/b`, `live_score_point`, `serving_player`) don't exist on `ScorePoint` (`game_score_a/b`, `point_score`, `server`) |
+| C2 | `/matches/[id]` Odds tab is entirely empty | columns reference `provider`/`odds_a`/`odds_b`/`market` — `OddsPoint` only has `back_odds_a/b`, `lay_odds_a/b`, `volume_a/b` |
+| C3 | `/matches/[id]` Incidents tab empty | columns `incident_type`/`resolved`/`description`/`timestamp` — `IncidentSummary` uses `category`/`status`/`title`/`first_detected` |
+| C4 | Live score string doubled (`30-40-30-40`) | `${match.live_score_point}-${match.live_score_point}` — `live_score_point` is already `"X-Y"` |
+| C5 | Global Search renders blank cards | frontend reads `item.title/description/url`; `SearchResult` defines `type/id/label/match` |
+| C6 | `MatchCard` mislabels DISCOVERED as SCHEDULED | `MatchCard.tsx:14-15` rewrites status string |
+| C7 | TopBar "DB Connected" is hardcoded | `layout.tsx:34-37` ignores `observabilityHealth.db`; "Last Refresh" uses `new Date()` not `dataUpdatedAt` |
+| C8 | `MatchDetail` omits live-snapshot fields | Python `MatchDetail` (models.py:58-84) doesn't declare `live_score_*`/`live_odds_*`/`quality_*` even though TS `MatchDetail extends MatchOverview` (api.ts:72) |
+| C9 | `IncidentDetail` field name diverges from summary | `incidents.py:81` returns `first_detected_at`; `IncidentSummary` uses `first_detected` (TS expects latter) |
+| C10 | `db/table/{name}` 500s on `Decimal` columns | `_serialize` (database.py:68-71) only handles `datetime`; breaks on `numeric` columns in `live_odds` |
+
+### 14.2 Dead code surfaced by the audit
+
+**Frontend (`console/lib/api.ts`)** — 7 of 33 exported functions are never imported by any page:
+- `matchTimeline`, `matchPoints`, `discoveryRuns`, `repairsHistory`, `registryPlayers`, `observabilityMetrics`, `reportByName`
+
+**Frontend dead modules / deps:**
+- `console/lib/websocket.ts` — singleton, never imported anywhere; TopBar/Sidebar "live" pulses are decorative
+- `reactflow`, `class-variance-authority`, `date-fns` — in `package.json` but no imports anywhere
+- `react-hot-toast` — `<Toaster>` mounted in `layout.tsx:80` but no `toast()` call anywhere
+
+**Backend dead/orphan Pydantic models** (declared in `console_api/models.py` but never used as `response_model`):
+- `CollectorStatus` (endpoint returns plain dict omitting `error_count`/`success_rate`)
+- `RepairLog`, `QualityDistribution`, `PipelineStage`, `TraceSpan`, `DiscoveryRun`
+
+**Backend dead params / branches:**
+- `quality_grade` param on `GET /api/matches` — collected but never used in SQL (`hasattr(tm,'id')` tautology instead, causing N+1 on every row)
+- `time_range_params` in `console_api/deps.py:33-37` — never imported by any router
+- `quality_grade` column-def rendering on `/matches` despite filter being inert
+- WebSocket `ws.broadcast()` in `console_api/ws.py:35` — never called
+
+### 14.3 Severe duplication
+
+- `/timeline` and `/logs` — same `["timeline"]` query, same key, ~70% overlap; should be one page with a view-mode toggle
+- `/discovery` (2 stat cards) and `/analytics` — both render discovered trend data; backend even runs **byte-for-byte identical SQL** in `discovery.py:12-19` and `analytics.py:21-28`
+- `/reports` — 6 cards each duplicate a dedicated page (`/matching`, `/quality`, `/validation`, `/collectors`, `/repair`); renders values as `JSON.stringify()`
+- `/registry` calls `searchMatches({player})` (matches!) — should use `registryPlayers()` per its name
+- `MatchDetail` redundantly fetches `matchScores` + `matchOdds` even though `matchDetail` already embeds `scores`/`odds`; also fetches the **entire** `incidents` table unparameterized and filters client-side
+
+### 14.4 Cross-link dead-ends
+
+Pages that trap the user with no drill-down to related entities:
+- `/` dashboard live cards not clickable to `/matches/[id]`
+- `/collectors` cards don't link to incidents or timeline
+- `/matching` unmatched rows not clickable (most actionable queue, dead-end)
+- `/quality` grade bars can't drill to affected matches
+- `/validation` no list of failed matches
+- `/pipeline` stages not linked to incidents/timeline
+- `/incidents` modal-only (no shareable route); `tracked_match_id` field present but not displayed or linked
+- `/repair` summary-only — `repairsHistory()` defined but never called
+- `/database` raw `tracked_matches` rows never link to `/matches/[id]`
+- `/matches/[id]` "matches" and "repairs" tabs are explicit stubs ("No data available from API") despite `MatchDetail.match_attempts` and `.repairs` being populated by the backend
+
+### 14.5 Performance vulnerabilities
+
+- `/api/overview` — 11 round-trips incl. `COUNT(*)` on `live_scores` (53k) and `live_odds` (228k); should use `_timescaledb_internal.approximate_row_count()` + a single folded `SELECT COUNT(*) FILTER (…)`".
+- `/api/pipeline/status` — up to **8 leading-% ILIKE seq scans** on `system_events` per call (one per stage × 2 fallback patterns); should be one `SELECT source, MAX(timestamp) GROUP BY source` + trigram GIN index
+- `/api/reports/all` — runs all 6 generators every call, no cache
+- `/api/matching/attempts` — `q.count()` over 2.5M-row table on every page, no date filter, OFFSET deep paging degrades O(N)
+- `/api/db/table/{name}` — `SELECT *` on `match_attempts` (2.5M) returns megabytes
+- N+1 in `/api/matches` — `completed_matches` lookup per row due to `hasattr(tm,'id')` tautology (`matches.py:132`)
+
+Recommended indexes (additive, planned):
+- `system_events`: btree `(source, timestamp DESC)`, `pg_trgm` GIN on `message`
+- `match_attempts`: `(created_at DESC)`, `(flashscore_match_id)`, partial `WHERE selected/rejected`
+- `incidents`: `(last_detected_at DESC)`, `status`, `severity`, `tracked_match_id`
+- `tracked_matches`: `status`, partial `WHERE betting_market_id IS NULL`
+- `completed_matches`: `tracked_match_id`, `quality_grade`, `failure_category`, partial `WHERE repair_count>0`
+
+### 14.6 Approved implementation tiers
+
+| Tier | Scope | Status |
+|------|-------|--------|
+| P0 | Fix C1–C10 contract bugs; populate Match Detail `matches`/`repairs` tabs from already-returned fields; backend response-shape fixes only (no new endpoints, no business logic) | queued |
+| P1 | Wire dead-end cross-links (Match↔Incident↔Timeline↔Collector↔Pipeline↔Database row); sidebar live badges from `overview`/`matchingSummary`; lift global search into TopBar | queued |
+| P2 | Consolidate: merge `/timeline`+`/logs` → `/system`; fold `/discovery` into `/analytics`; convert `/reports` to link index; rebuild `/registry` as Player Registry | queued |
+| P3 | Extract `<StatusBadge>`, `<SeverityBadge>`, `<GradeBadge>`, `lib/constants.ts`, `lib/queryKeys.ts`; fix Badge/Button/Tabs/MatchCard/StatCard bugs (focus ring, tab unmount loses grid state, mislabel, dead class) | queued |
+| P4 | Performance: drop over-fetch in `/matches/[id]`, `React.memo`, `columnDefs` memoization, `refetchIntervalInBackground:false`, code-split Recharts, remove dead deps; backend query folding + index script + cache for slow aggregates | queued |
+| P5 | UX polish: URL state for filters, structured error component with retry, dashboard "Priorities" panel, empty states, dashboard live-card link | queued |
+
+Each tier verified with `npm run build` + `npm run lint` (Next.js build runs TypeScript checks) in `console/` plus `python3 -m py_compile` on edited backend files. No commits until final review.
+
+> **Out-of-scope per brief:** no new endpoints, no POST/PATCH writes (incident ACK/resolve, re-run finalizer), no auth layer (recommended given public DNS — deferred). Backend edits are limited to **additive response-shape fixes** + **narrow existing-field population**; nothing that changes routes, business logic, or schema.
