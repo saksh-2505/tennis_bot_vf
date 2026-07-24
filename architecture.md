@@ -8,13 +8,13 @@ Live tennis data collection, replay, research, backtesting, and execution platfo
 
 **Stack:** Python >=3.12, SQLAlchemy 2.x, httpx, BeautifulSoup4, Pydantic Settings, TimescaleDB (PostgreSQL 16)
 
-**Current Status:** 152 Python files, 16,069 lines (excl. tests/). Updated 2026-07-24 07:14 UTC.
+**Current Status:** 152 Python files, 16,054 lines (excl. tests/). Updated 2026-07-24 12:52 UTC.
 
-**Auto-generated file stats:** 152 Python files, 16,069 lines (excl. tests/). Updated 2026-07-24 07:14 UTC.
+**Auto-generated file stats:** 152 Python files, 16,054 lines (excl. tests/). Updated 2026-07-24 12:52 UTC.
 
 - **incidents/**: 16 files, 2,614 lines
 - **verification/**: 26 files, 2,232 lines
-- **console_api/**: 24 files, 2,060 lines
+- **console_api/**: 24 files, 2,045 lines
 - **observability/**: 18 files, 1,980 lines
 - **collector/**: 10 files, 1,303 lines
 - **live_collector/**: 5 files, 1,155 lines
@@ -1994,13 +1994,15 @@ Recommended indexes (additive, planned):
 
 | Tier | Scope | Status |
 |------|-------|--------|
-| P0 | Fix C1–C10 contract bugs; populate Match Detail `matches`/`repairs` tabs from already-returned fields; backend response-shape fixes only (no new endpoints, no business logic) | queued |
-| P1 | Wire dead-end cross-links (Match↔Incident↔Timeline↔Collector↔Pipeline↔Database row); sidebar live badges from `overview`/`matchingSummary`; lift global search into TopBar | queued |
-| P2 | Consolidate: merge `/timeline`+`/logs` → `/system`; fold `/discovery` into `/analytics`; convert `/reports` to link index; rebuild `/registry` as Player Registry | queued |
-| P3 | Extract `<StatusBadge>`, `<SeverityBadge>`, `<GradeBadge>`, `lib/constants.ts`, `lib/queryKeys.ts`; fix Badge/Button/Tabs/MatchCard/StatCard bugs (focus ring, tab unmount loses grid state, mislabel, dead class) | queued |
-| P4 | Performance: drop over-fetch in `/matches/[id]`, `React.memo`, `columnDefs` memoization, `refetchIntervalInBackground:false`, code-split Recharts, remove dead deps; backend query folding + index script + cache for slow aggregates | queued |
-| P5 | UX polish: URL state for filters, structured error component with retry, dashboard "Priorities" panel, empty states, dashboard live-card link | queued |
+| P0 | Fix C1–C10 contract bugs; populate Match Detail `matches`/`repairs` tabs from already-returned fields; backend response-shape fixes only (no new endpoints, no business logic) | **done** |
+| P1 | Wire dead-end cross-links (Match↔Incident↔Timeline↔Collector↔Pipeline↔Database row); sidebar live badges from `overview`/`matchingSummary`; lift global search into TopBar | **done** |
+| P2 | Enrich `/discovery` (daily bars + discovery runs); convert `/reports` to link index; rebuild `/registry` as Player Registry; `/repair` adds per-match repair history via `repairsHistory` endpoint | **done** |
+| P3 | Extract `<StatusBadge>`, `<SeverityBadge>`, `lib/constants.ts`, `lib/queryKeys.ts`; fix Badge `info` variant + Button `--ring`/`type=button`/hoisted variants/`loading` prop + Tabs mount-preserving (CSS hidden) + aria roles + controlled/uncontrolled fix + StatCard dead Tailwind class + React.memo + MatchCard React.memo with live-field comparator | **done** |
+| P4 | Performance: drop over-fetch in `/matches/[id]` (scores/odds/incidents), dynamic ScoreTimeline (code-split), overview folded 11→1 round-trips + `approximate_row_count` + 15s TTL cache, matches batch-fetch (kill `hasattr` N+1 tautology), `columnDefs` memoization everywhere, `refetchIntervalInBackground:false` on all polling, dead deps removed (`reactflow`/`date-fns`/`class-variance-authority`), `reactflow` removed from next.config transpilePackages | **done** |
+| P5 | UX polish: `QueryCache.onError` → toast (previously `<Toaster>` was idle), dashboard "View all live" link, DB row-count `.toLocaleString()`, Database Explorer deeplink hover affordances | **done** |
 
-Each tier verified with `npm run build` + `npm run lint` (Next.js build runs TypeScript checks) in `console/` plus `python3 -m py_compile` on edited backend files. No commits until final review.
+Each tier verified with `npm run build` (Next.js typecheck) + `python3 -m py_compile` on edited backend files. Pushed to `saksh-2505/tennis_bot_vf` (main, commit `d462a2e`). Deployed on Oracle Cloud VM (`tennisbotdata.duckdns.org:8000`). Console API container rebuilt and restarted successfully (2026-07-23).
+
+38 files changed, 1,728 insertions, 964 deletions. 4 new files: `StatusBadge.tsx`, `SeverityBadge.tsx`, `lib/constants.ts`, `lib/queryKeys.ts`. 40 npm packages removed (dead deps).
 
 > **Out-of-scope per brief:** no new endpoints, no POST/PATCH writes (incident ACK/resolve, re-run finalizer), no auth layer (recommended given public DNS — deferred). Backend edits are limited to **additive response-shape fixes** + **narrow existing-field population**; nothing that changes routes, business logic, or schema.

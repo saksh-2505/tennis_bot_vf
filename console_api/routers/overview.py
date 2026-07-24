@@ -1,5 +1,4 @@
 """Overview API — platform health and summary statistics."""
-from functools import lru_cache
 import time
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, text
@@ -10,36 +9,17 @@ from console_api.models import PlatformOverview
 
 router = APIRouter()
 
-
-def _cached(ttl_seconds: int):
-    """Simple TTL cache wrapper for lru_cache(maxsize=1) — 1-item cache with TTL expiry."""
-    def decorator(f):
-        memo = {"value": None, "expires": 0.0}
-        @lru_cache(maxsize=1)
-        def _inner(*args, **kwargs):
-            now = time.monotonic()
-            if now < memo["expires"] and memo["value"] is not None:
-                return memo["value"]
-            result = f(*args, **kwargs)
-            memo["value"] = result
-            memo["expires"] = now + ttl_seconds
-            return result
-        return _inner
-    return decorator
+# Simple module-level TTL cache — avoids the unhashable-Session problem of
+# wrapping functools.lru_cache on a function that receives a Session.
+_cache = {"data": None, "expires": 0.0}
 
 
-@_cached(ttl_seconds=15)
-def _overview_counts(db: Session):
-    """Folded count queries — one round-trip for tracked_matches + completed_matches.
-
-    Hypertable row counts use TimescaleDB's approximate_row_count() which
-    samples internal chunk-level stats instead of scanning 53k/228k rows."""
+def _compute_overview(db: Session) -> PlatformOverview:
     from models.tracked_match import TrackedMatch
     from models.completed_match import CompletedMatch
     from models.player import Player
     from incidents.models import Incident
 
-    # Single folded query for the counted subsets of tracked_matches.
     tracked_agg = (
         db.query(
             func.count().label("total"),
@@ -59,7 +39,6 @@ def _overview_counts(db: Session):
         .count()
     )
 
-    # Completed-match aggregates — folded into one query.
     cm_agg = (
         db.query(
             func.count().label("total"),
@@ -73,19 +52,19 @@ def _overview_counts(db: Session):
         .first()
     )
 
-    # Approximate hypertable row counts (avoids full scans over 53k/228k rows).
-    score_ticks = (
-        db.execute(
-            text("SELECT _timescaledb_internal.approximate_row_count('live_scores')")
-        ).scalar()
-        or 0
-    )
-    odds_ticks = (
-        db.execute(
-            text("SELECT _timescaledb_internal.approximate_row_count('live_odds')")
-        ).scalar()
-        or 0
-    )
+    # TimescaleDB ≥2.0: `approximate_row_count(regclass)` in public schema.
+    # Falls back to a real COUNT(*) if the function is missing or older.
+    def _approx(table: str) -> int:
+        try:
+            return (
+                db.execute(text("SELECT approximate_row_count(:tbl)"), {"tbl": table}).scalar()
+                or 0
+            )
+        except Exception:
+            return db.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar() or 0
+
+    score_ticks = _approx("live_scores")
+    odds_ticks = _approx("live_odds")
 
     tc = cm_agg.total
     return PlatformOverview(
@@ -107,4 +86,10 @@ def _overview_counts(db: Session):
 
 @router.get("/overview", response_model=PlatformOverview)
 def get_overview(db: Session = Depends(get_db)):
-    return _overview_counts(db)
+    now = time.monotonic()
+    if _cache["data"] is not None and now < _cache["expires"]:
+        return _cache["data"]
+    result = _compute_overview(db)
+    _cache["data"] = result
+    _cache["expires"] = now + 15
+    return result
